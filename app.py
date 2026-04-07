@@ -208,22 +208,41 @@ if uploaded_file:
                     st.error("Nenhum indivíduo (INDI) encontrado no arquivo GEDCOM.")
                     st.stop()
 
-                # Pegar o primeiro indivíduo disponível
-                root_id = list(individuals.keys())[0]
-                root_indi = build_tree(individuals, families, root_id)
+                # Criar opções para o selectbox
+                indi_options = []
+                for i_id, rec in individuals.items():
+                    name = get_name(rec)
+                    birth = get_date(rec, "BIRT")
+                    label = f"{name} ({birth})" if birth else name
+                    indi_options.append((i_id, label))
                 
-                if root_indi:
-                    layout_tree(root_indi, 20 * mm)
-                    pdf_buffer = generate_pdf(root_indi)
-                    
-                    st.success(f"Árvore processada: {root_indi.name}")
-                    st.download_button(
-                        label="📥 Baixar PDF (4x A3)",
-                        data=pdf_buffer,
-                        file_name="arvore_genealogica.pdf",
-                        mime="application/pdf"
-                    )
-                else:
-                    st.error("Não foi possível encontrar a raiz da árvore.")
+                indi_options.sort(key=lambda x: x[1])
+                
+                st.write("---")
+                st.subheader("Configuração da Árvore")
+                
+                root_id = st.selectbox(
+                    "Selecione a pessoa principal (Raiz da Árvore):",
+                    options=[x[0] for x in indi_options],
+                    format_func=lambda x: next(item[1] for item in indi_options if item[0] == x)
+                )
+                
+                if root_id:
+                    with st.spinner("Gerando PDF..."):
+                        root_indi = build_tree(individuals, families, root_id)
+                        
+                        if root_indi:
+                            layout_tree(root_indi, 20 * mm)
+                            pdf_buffer = generate_pdf(root_indi)
+                            
+                            st.success(f"Árvore pronta para: {root_indi.name}")
+                            st.download_button(
+                                label="📥 Baixar PDF (4x A3)",
+                                data=pdf_buffer,
+                                file_name="arvore_genealogica.pdf",
+                                mime="application/pdf"
+                            )
+                        else:
+                            st.error("Erro ao construir a árvore para esta pessoa.")
         except Exception as e:
             st.error(f"Erro ao processar: {e}")
