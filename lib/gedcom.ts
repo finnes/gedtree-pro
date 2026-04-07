@@ -24,9 +24,10 @@ export function cleanId(val: string | null | undefined): string {
 }
 
 export function parseGedcom(content: string): ParsedGedcom {
-  // Remove BOM if present
-  content = content.replace(/^\uFEFF/, '');
-  const lines = content.split(/\r?\n/);
+  // Remove BOM and null bytes
+  content = content.replace(/^\uFEFF/, '').replace(/\0/g, '');
+  // Split by any newline character
+  const lines = content.split(/\r\n|\n|\r/);
   
   const individuals: Record<string, Individual> = {};
   const families: Record<string, Family> = {};
@@ -39,47 +40,27 @@ export function parseGedcom(content: string): ParsedGedcom {
     line = line.trim();
     if (!line) continue;
     
-    const parts = line.split(/\s+/);
-    if (parts.length < 2) continue;
+    // Match standard GEDCOM lines: "level [id] tag [value]"
+    // Examples: "0 @I1@ INDI", "1 NAME John /Doe/", "2 DATE 3 JUL 1979"
+    const match = line.match(/^(\d+)\s+(@[^@]+@\s+)?([A-Za-z0-9_]+)(?:\s+(.*))?$/);
+    if (!match) continue;
     
-    const level = parseInt(parts[0], 10);
-    if (isNaN(level)) continue;
-    
-    let idMatch = null;
-    let tag = '';
-    let value = '';
-    
-    if (parts[1].startsWith('@') && parts[1].endsWith('@')) {
-      idMatch = parts[1];
-      tag = parts[2] || '';
-      value = parts.slice(3).join(' ');
-    } else {
-      tag = parts[1];
-      value = parts.slice(2).join(' ');
-    }
-    
-    tag = tag.toUpperCase();
+    const level = parseInt(match[1], 10);
+    const idMatch = match[2] ? match[2].trim() : null;
+    const tag = match[3].toUpperCase();
+    const value = match[4] ? match[4].trim() : '';
     
     if (level === 0) {
       currentEvent = null;
+      
       if (tag === 'INDI' && idMatch) {
         currentType = 'INDI';
         const id = cleanId(idMatch);
         currentRecord = { id, name: 'Desconhecido', birth: '', death: '', famc: [] };
         individuals[id] = currentRecord;
-      } else if (tag === 'INDI' && value.startsWith('@')) {
-        currentType = 'INDI';
-        const id = cleanId(value.split(/\s+/)[0]);
-        currentRecord = { id, name: 'Desconhecido', birth: '', death: '', famc: [] };
-        individuals[id] = currentRecord;
       } else if (tag === 'FAM' && idMatch) {
         currentType = 'FAM';
         const id = cleanId(idMatch);
-        currentRecord = { id, husb: null, wife: null, chil: [] };
-        families[id] = currentRecord;
-      } else if (tag === 'FAM' && value.startsWith('@')) {
-        currentType = 'FAM';
-        const id = cleanId(value.split(/\s+/)[0]);
         currentRecord = { id, husb: null, wife: null, chil: [] };
         families[id] = currentRecord;
       } else {
@@ -94,9 +75,12 @@ export function parseGedcom(content: string): ParsedGedcom {
     if (currentType === 'INDI') {
       if (level === 1) {
         if (tag === 'NAME') {
-          currentRecord.name = value.replace(/\//g, '').trim();
-        } else if (tag === 'BIRT' || tag === 'DEAT') {
-          currentEvent = tag;
+          const nameVal = value.replace(/\//g, '').trim();
+          if (nameVal) currentRecord.name = nameVal;
+        } else if (tag === 'BIRT') {
+          currentEvent = 'BIRT';
+        } else if (tag === 'DEAT') {
+          currentEvent = 'DEAT';
         } else if (tag === 'FAMC') {
           currentRecord.famc.push(cleanId(value));
         } else {
