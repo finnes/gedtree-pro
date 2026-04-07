@@ -118,17 +118,24 @@ def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
     
     return indi
 
-def layout_tree(indi, start_y):
+def get_max_gen(indi):
+    if not indi: return 0
+    m = indi.generation
+    if indi.father: m = max(m, get_max_gen(indi.father))
+    if indi.mother: m = max(m, get_max_gen(indi.mother))
+    return m
+
+def layout_tree(indi, start_y, gen_w):
     if not indi:
         return
     
-    indi.x = indi.generation * GEN_WIDTH + 20 * mm
+    indi.x = indi.generation * gen_w + 20 * mm
     indi.y = start_y + indi.subtree_height / 2
     
     h_f = indi.father.subtree_height if indi.father else (BOX_HEIGHT + BOX_SPACING)
     
-    layout_tree(indi.father, start_y)
-    layout_tree(indi.mother, start_y + h_f)
+    layout_tree(indi.father, start_y, gen_w)
+    layout_tree(indi.mother, start_y + h_f, gen_w)
 
 def draw_tree(c, indi):
     if not indi:
@@ -194,12 +201,27 @@ def generate_pdf(root_indi):
     c = canvas.Canvas(buffer, pagesize=landscape(A3))
     
     tree_height = root_indi.subtree_height
-    available_height = PAGE_HEIGHT - 20 * mm
+    available_height = PAGE_HEIGHT - 40 * mm # Margem maior para segurança
     
     # Escalar a árvore se ela for maior que a altura da página
     scale = 1.0
     if tree_height > available_height:
         scale = available_height / tree_height
+        
+    # Recalcular o layout com um GEN_WIDTH dinâmico para espalhar a árvore
+    # Queremos que a árvore ocupe boa parte dos 1680mm
+    max_g = get_max_gen(root_indi)
+    if max_g > 0:
+        # A largura final na página será: (max_g * dynamic_gen_width) * scale
+        # Queremos que isso seja próximo de TOTAL_WIDTH - margens
+        target_w = TOTAL_WIDTH - 150 * mm
+        dynamic_gen_w = target_w / (max_g * scale)
+        # Limitar para não ficar absurdamente largo ou estreito
+        dynamic_gen_w = max(150 * mm, min(dynamic_gen_w, 800 * mm))
+    else:
+        dynamic_gen_w = GEN_WIDTH
+        
+    layout_tree(root_indi, 0, dynamic_gen_w)
         
     # Centralizar verticalmente
     y_offset = (PAGE_HEIGHT - (tree_height * scale)) / 2
@@ -312,7 +334,6 @@ if uploaded_file:
                             root_indi = build_tree(individuals, families, root_id)
                             
                             if root_indi:
-                                layout_tree(root_indi, 0)
                                 pdf_buffer = generate_pdf(root_indi)
                                 
                                 st.success(f"Árvore pronta para: {root_indi.name}")
