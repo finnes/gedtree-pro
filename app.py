@@ -28,8 +28,35 @@ class Individual:
         self.y = 0
         self.subtree_height = 0
 
+def clean_id(val):
+    if not val: return None
+    if isinstance(val, tuple): val = val[0]
+    return str(val).replace("@", "").strip()
+
+def get_sub_record(record, tag):
+    if hasattr(record, 'sub_records') and record.sub_records:
+        for sub in record.sub_records:
+            if sub.tag == tag:
+                return sub
+    return None
+
+def get_all_pointers(record, tag):
+    pointers = []
+    if hasattr(record, 'sub_records') and record.sub_records:
+        for sub in record.sub_records:
+            if sub.tag == tag:
+                pid = clean_id(sub.value)
+                if pid: pointers.append(pid)
+    return pointers
+
+def get_pointer(record, tag):
+    sub = get_sub_record(record, tag)
+    if sub:
+        return clean_id(sub.value)
+    return None
+
 def get_name(indi):
-    name_tag = indi.sub_tag("NAME")
+    name_tag = get_sub_record(indi, "NAME")
     if name_tag:
         val = name_tag.value
         if isinstance(val, tuple):
@@ -38,24 +65,15 @@ def get_name(indi):
     return "Desconhecido"
 
 def get_date(indi, tag):
-    event = indi.sub_tag(tag)
+    event = get_sub_record(indi, tag)
     if event:
-        date = event.sub_tag("DATE")
+        date = get_sub_record(event, "DATE")
         if date:
             val = date.value
             if isinstance(val, tuple):
                 val = " ".join([str(v) for v in val if v])
             return str(val)
     return ""
-
-def get_pointer(record, tag):
-    sub = record.sub_tag(tag)
-    if sub:
-        val = sub.value
-        if isinstance(val, tuple):
-            val = val[0]
-        return str(val).strip()
-    return None
 
 def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
     if gen >= max_gen:
@@ -73,16 +91,25 @@ def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
     indi.generation = gen
     
     # Buscar pais
+    fam_rec = None
     famc_val = get_pointer(indi_rec, "FAMC")
     if famc_val:
         fam_rec = families.get(famc_val)
-        if fam_rec:
-            husb_val = get_pointer(fam_rec, "HUSB")
-            wife_val = get_pointer(fam_rec, "WIFE")
-            if husb_val:
-                indi.father = build_tree(individuals, families, husb_val, gen + 1, max_gen)
-            if wife_val:
-                indi.mother = build_tree(individuals, families, wife_val, gen + 1, max_gen)
+        
+    if not fam_rec:
+        for f_rec in families.values():
+            chil_ids = get_all_pointers(f_rec, "CHIL")
+            if indi_id in chil_ids:
+                fam_rec = f_rec
+                break
+                
+    if fam_rec:
+        husb_val = get_pointer(fam_rec, "HUSB")
+        wife_val = get_pointer(fam_rec, "WIFE")
+        if husb_val:
+            indi.father = build_tree(individuals, families, husb_val, gen + 1, max_gen)
+        if wife_val:
+            indi.mother = build_tree(individuals, families, wife_val, gen + 1, max_gen)
                 
     # Calcular altura da subárvore para evitar colisões
     h_f = indi.father.subtree_height if indi.father else (BOX_HEIGHT + BOX_SPACING)
@@ -227,10 +254,12 @@ if uploaded_file:
                 families = {}
                 
                 for rec in reader.records0("INDI"):
-                    individuals[rec.xref_id] = rec
+                    idx = clean_id(rec.xref_id)
+                    if idx: individuals[idx] = rec
                     
                 for rec in reader.records0("FAM"):
-                    families[rec.xref_id] = rec
+                    idx = clean_id(rec.xref_id)
+                    if idx: families[idx] = rec
 
                 if not individuals:
                     st.error("Nenhum indivíduo (INDI) encontrado no arquivo GEDCOM.")
