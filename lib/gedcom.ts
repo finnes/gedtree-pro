@@ -1,111 +1,201 @@
-import { parse } from 'parse-gedcom';
-
 export interface Individual {
   id: string;
   name: string;
-  birthDate?: string;
-  deathDate?: string;
-  fatherId?: string;
-  motherId?: string;
-  generation: number;
-  x: number;
-  y: number;
-  subtreeHeight: number;
+  birth: string;
+  death: string;
+  famc: string[];
 }
 
-export function parseGedcom(content: string): Individual[] {
-  const data = parse(content) as any;
-  // parse-gedcom returns either an array or an object with a tree property
-  const records = Array.isArray(data) ? data : (data.tree || []);
+export interface Family {
+  id: string;
+  husb: string | null;
+  wife: string | null;
+  chil: string[];
+}
+
+export interface ParsedGedcom {
+  individuals: Record<string, Individual>;
+  families: Record<string, Family>;
+}
+
+export function cleanId(val: string | null | undefined): string {
+  if (!val) return '';
+  return val.replace(/@/g, '').trim();
+}
+
+export function parseGedcom(content: string): ParsedGedcom {
+  const lines = content.split(/\r?\n/);
   
-  const individualsMap: Record<string, any> = {};
-  const familiesMap: Record<string, any> = {};
-
-  if (records.length === 0) return [];
-
-  records.forEach((record: any) => {
-    const tag = record.tag?.toUpperCase();
-    if (tag === 'INDI') {
-      const nameTag = record.tree.find((t: any) => t.tag?.toUpperCase() === 'NAME');
-      const birthTag = record.tree.find((t: any) => t.tag?.toUpperCase() === 'BIRT');
-      const deathTag = record.tree.find((t: any) => t.tag?.toUpperCase() === 'DEAT');
-      
-      const birthDate = birthTag?.tree.find((t: any) => t.tag?.toUpperCase() === 'DATE')?.data;
-      const deathDate = deathTag?.tree.find((t: any) => t.tag?.toUpperCase() === 'DATE')?.data;
-
-      const id = record.pointer || record.data;
-      if (id) {
-        individualsMap[id] = {
-          id: id,
-          name: nameTag?.data?.replace(/\//g, ' ').trim() || 'Desconhecido',
-          birthDate: birthDate || '',
-          deathDate: deathDate || '',
-          famc: record.tree.find((t: any) => t.tag?.toUpperCase() === 'FAMC')?.data
-        };
+  const individuals: Record<string, Individual> = {};
+  const families: Record<string, Family> = {};
+  
+  let currentRecord: any = null;
+  let currentType: 'INDI' | 'FAM' | null = null;
+  let currentEvent: 'BIRT' | 'DEAT' | null = null;
+  
+  for (let line of lines) {
+    line = line.trim();
+    if (!line) continue;
+    
+    // Match standard GEDCOM lines: "0 @I1@ INDI" or "1 NAME John /Doe/"
+    const match = line.match(/^(\d+)\s+(@[^@]+@\s+)?([A-Z0-9_]+)(?:\s+(.*))?$/);
+    if (!match) continue;
+    
+    const level = parseInt(match[1], 10);
+    const idMatch = match[2] ? match[2].trim() : null;
+    let tag = match[3];
+    let value = match[4] || '';
+    
+    if (level === 0) {
+      currentEvent = null;
+      if (tag === 'INDI' && idMatch) {
+        currentType = 'INDI';
+        const id = cleanId(idMatch);
+        currentRecord = { id, name: 'Desconhecido', birth: '', death: '', famc: [] };
+        individuals[id] = currentRecord;
+      } else if (tag === 'FAM' && idMatch) {
+        currentType = 'FAM';
+        const id = cleanId(idMatch);
+        currentRecord = { id, husb: null, wife: null, chil: [] };
+        families[id] = currentRecord;
+      } else {
+        currentType = null;
+        currentRecord = null;
       }
-    } else if (tag === 'FAM') {
-      const id = record.pointer || record.data;
-      if (id) {
-        familiesMap[id] = {
-          husb: record.tree.find((t: any) => t.tag?.toUpperCase() === 'HUSB')?.data,
-          wife: record.tree.find((t: any) => t.tag?.toUpperCase() === 'WIFE')?.data
-        };
+      continue;
+    }
+    
+    if (!currentRecord) continue;
+    
+    if (currentType === 'INDI') {
+      if (level === 1) {
+        if (tag === 'NAME') {
+          currentRecord.name = value.replace(/\//g, '').trim();
+        } else if (tag === 'BIRT' || tag === 'DEAT') {
+          currentEvent = tag;
+        } else if (tag === 'FAMC') {
+          currentRecord.famc.push(cleanId(value));
+        } else {
+          currentEvent = null;
+        }
+      } else if (level === 2 && tag === 'DATE' && currentEvent) {
+        if (currentEvent === 'BIRT') currentRecord.birth = value;
+        if (currentEvent === 'DEAT') currentRecord.death = value;
+      }
+    } else if (currentType === 'FAM') {
+      if (level === 1) {
+        if (tag === 'HUSB') currentRecord.husb = cleanId(value);
+        else if (tag === 'WIFE') currentRecord.wife = cleanId(value);
+        else if (tag === 'CHIL') currentRecord.chil.push(cleanId(value));
       }
     }
-  });
+  }
+  
+  return { individuals, families };
+}
 
-  // Link parents
-  Object.values(individualsMap).forEach((indi: any) => {
-    if (indi.famc && familiesMap[indi.famc]) {
-      indi.fatherId = familiesMap[indi.famc].husb;
-      indi.motherId = familiesMap[indi.famc].wife;
+export interface TreeNode {
+  id: string;
+  name: string;
+  birth: string;
+  death: string;
+  generation: number;
+  father: TreeNode | null;
+  mother: TreeNode | null;
+  subtreeHeight: number;
+  x: number;
+  y: number;
+}
+
+export function buildTree(
+  individuals: Record<string, Individual>,
+  families: Record<string, Family>,
+  rootId: string,
+  maxGen: number = 15
+): TreeNode | null {
+  
+  function traverse(indiId: string, gen: number): TreeNode | null {
+    if (gen >= maxGen) return null;
+    
+    const cleanIndiId = cleanId(indiId);
+    const indi = individuals[cleanIndiId];
+    if (!indi) return null;
+    
+    const node: TreeNode = {
+      id: cleanIndiId,
+      name: indi.name,
+      birth: indi.birth,
+      death: indi.death,
+      generation: gen,
+      father: null,
+      mother: null,
+      subtreeHeight: 0,
+      x: 0,
+      y: 0
+    };
+    
+    let fam: Family | null = null;
+    
+    // 1. Try FAMC
+    for (const famcId of indi.famc) {
+      if (families[famcId]) {
+        fam = families[famcId];
+        break;
+      }
     }
-  });
-
-  // Find root (first person or someone without children in the file - simplified)
-  const rootId = Object.keys(individualsMap)[0];
-  if (!rootId) return [];
-
-  const result: Individual[] = [];
-  const visited = new Set<string>();
-
-  const BOX_HEIGHT = 20;
-  const BOX_SPACING = 10;
-  const GEN_WIDTH = 150;
-
-  function calculateSubtreeHeight(id: string | undefined, gen: number): number {
-    if (!id || !individualsMap[id] || gen >= 10) return BOX_HEIGHT + BOX_SPACING;
     
-    const indi = individualsMap[id];
-    const fatherHeight = calculateSubtreeHeight(indi.fatherId, gen + 1);
-    const motherHeight = calculateSubtreeHeight(indi.motherId, gen + 1);
+    // 2. Fallback: search all families where this person is a child
+    if (!fam) {
+      for (const f of Object.values(families)) {
+        if (f.chil.includes(cleanIndiId)) {
+          fam = f;
+          break;
+        }
+      }
+    }
     
-    const height = Math.max(BOX_HEIGHT + BOX_SPACING, fatherHeight + motherHeight);
-    indi.subtreeHeight = height;
-    return height;
+    if (fam) {
+      if (fam.husb) node.father = traverse(fam.husb, gen + 1);
+      if (fam.wife) node.mother = traverse(fam.wife, gen + 1);
+    }
+    
+    return node;
   }
+  
+  return traverse(rootId, 0);
+}
 
-  function layout(id: string | undefined, gen: number, startY: number) {
-    if (!id || !individualsMap[id] || gen >= 10 || visited.has(id)) return;
-    visited.add(id);
+export function getMaxGen(node: TreeNode | null): number {
+  if (!node) return 0;
+  return Math.max(
+    node.generation,
+    getMaxGen(node.father),
+    getMaxGen(node.mother)
+  );
+}
 
-    const indi = individualsMap[id];
-    const totalHeight = indi.subtreeHeight || (BOX_HEIGHT + BOX_SPACING);
-    
-    indi.generation = gen;
-    indi.x = gen * GEN_WIDTH + 20; // 20mm margin
-    indi.y = startY + totalHeight / 2;
-
-    result.push(indi as Individual);
-
-    const fatherHeight = (indi.fatherId && individualsMap[indi.fatherId]) ? individualsMap[indi.fatherId].subtreeHeight : (BOX_HEIGHT + BOX_SPACING);
-    
-    layout(indi.fatherId, gen + 1, startY);
-    layout(indi.motherId, gen + 1, startY + fatherHeight);
+export function layoutTree(
+  node: TreeNode | null,
+  startY: number,
+  boxHeight: number,
+  boxSpacing: number,
+  genWidth: number
+): number {
+  if (!node) return 0;
+  
+  if (!node.father && !node.mother) {
+    node.subtreeHeight = boxHeight + boxSpacing;
+    node.x = node.generation * genWidth;
+    node.y = startY + node.subtreeHeight / 2;
+    return node.subtreeHeight;
   }
-
-  calculateSubtreeHeight(rootId, 0);
-  layout(rootId, 0, 20); // 20mm top margin
-
-  return result;
+  
+  const hF = layoutTree(node.father, startY, boxHeight, boxSpacing, genWidth);
+  const hM = layoutTree(node.mother, startY + hF, boxHeight, boxSpacing, genWidth);
+  
+  node.subtreeHeight = Math.max(boxHeight + boxSpacing, hF + hM);
+  node.x = node.generation * genWidth;
+  node.y = startY + node.subtreeHeight / 2;
+  
+  return node.subtreeHeight;
 }

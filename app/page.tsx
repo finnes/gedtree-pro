@@ -1,14 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Upload, Download, FileText, TreeDeciduous, Info, CheckCircle2, AlertCircle } from 'lucide-react';
-import { parseGedcom, Individual } from '@/lib/gedcom';
+import { parseGedcom, buildTree, layoutTree, ParsedGedcom, TreeNode } from '@/lib/gedcom';
 import { generateTreePDF } from '@/lib/pdf';
 
 export default function GedcomToPdfPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [individuals, setIndividuals] = useState<Individual[]>([]);
+  const [parsedData, setParsedData] = useState<ParsedGedcom | null>(null);
+  const [rootId, setRootId] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,10 +29,14 @@ export default function GedcomToPdfPage() {
     try {
       const content = await uploadedFile.text();
       const parsed = parseGedcom(content);
-      if (parsed.length === 0) {
+      
+      if (Object.keys(parsed.individuals).length === 0) {
         throw new Error('Nenhum dado encontrado no arquivo GEDCOM.');
       }
-      setIndividuals(parsed);
+      
+      setParsedData(parsed);
+      // Auto-select the first person
+      setRootId(Object.keys(parsed.individuals)[0]);
     } catch (err) {
       setError('Erro ao processar o arquivo. Verifique se o formato está correto.');
       console.error(err);
@@ -40,9 +45,23 @@ export default function GedcomToPdfPage() {
     }
   };
 
+  const sortedIndividuals = useMemo(() => {
+    if (!parsedData) return [];
+    return Object.values(parsedData.individuals).sort((a, b) => a.name.localeCompare(b.name));
+  }, [parsedData]);
+
+  const treeNode = useMemo(() => {
+    if (!parsedData || !rootId) return null;
+    const root = buildTree(parsedData.individuals, parsedData.families, rootId);
+    if (root) {
+      layoutTree(root, 0, 12, 2, 80); // BOX_HEIGHT=12, BOX_SPACING=2, GEN_WIDTH=80
+    }
+    return root;
+  }, [parsedData, rootId]);
+
   const handleDownload = () => {
-    if (individuals.length === 0) return;
-    generateTreePDF(individuals);
+    if (!treeNode) return;
+    generateTreePDF(treeNode);
   };
 
   return (
@@ -71,7 +90,7 @@ export default function GedcomToPdfPage() {
                 Sua história familiar em um <span className="text-indigo-600">banner gigante.</span>
               </h2>
               <p className="text-lg text-slate-600 leading-relaxed">
-                Transforme seu arquivo GEDCOM em um PDF de alta resolução formatado para impressão em 4 páginas A3. 
+                Transforme seu arquivo GEDCOM em um PDF de alta resolução formatado para impressão em páginas A3. 
                 Perfeito para quadros, reuniões de família ou presentes.
               </p>
             </div>
@@ -83,7 +102,7 @@ export default function GedcomToPdfPage() {
               <ul className="space-y-3 text-sm text-indigo-800/80">
                 <li className="flex gap-3">
                   <div className="mt-1 w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                  <span>Layout &quot;Tripa&quot;: 1680mm x 297mm (4x A3 Paisagem).</span>
+                  <span>Layout em Grade: O sistema calcula automaticamente quantas folhas A3 são necessárias.</span>
                 </li>
                 <li className="flex gap-3">
                   <div className="mt-1 w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
@@ -151,10 +170,10 @@ export default function GedcomToPdfPage() {
           <div className="lg:sticky lg:top-28 space-y-6">
             <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
               <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <h3 className="font-bold text-slate-900">Resumo da Árvore</h3>
-                {individuals.length > 0 && (
+                <h3 className="font-bold text-slate-900">Configuração da Árvore</h3>
+                {parsedData && (
                   <span className="px-3 py-1 bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full">
-                    {individuals.length} Indivíduos
+                    {Object.keys(parsedData.individuals).length} Indivíduos
                   </span>
                 )}
               </div>
@@ -162,20 +181,39 @@ export default function GedcomToPdfPage() {
                 {isProcessing ? (
                   <div className="flex flex-col items-center gap-4">
                     <div className="w-12 h-12 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin" />
-                    <p className="text-slate-500 font-medium">Processando gerações...</p>
+                    <p className="text-slate-500 font-medium">Processando arquivo...</p>
                   </div>
-                ) : individuals.length > 0 ? (
-                  <div className="space-y-6 w-full">
+                ) : parsedData && treeNode ? (
+                  <div className="space-y-6 w-full text-left">
+                    
+                    <div className="space-y-2">
+                      <label className="block text-sm font-bold text-slate-700">Pessoa Raiz (Início da Árvore)</label>
+                      <select 
+                        value={rootId}
+                        onChange={(e) => setRootId(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      >
+                        {sortedIndividuals.map(indi => (
+                          <option key={indi.id} value={indi.id}>
+                            {indi.name} ({indi.birth ? indi.birth.substring(0, 4) : '?'})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
                         <p className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Gerações</p>
                         <p className="text-2xl font-black text-slate-900">
-                          {Math.max(...individuals.map(i => i.generation)) + 1}
+                          {treeNode ? (function getMaxGen(n: TreeNode): number {
+                            if (!n) return 0;
+                            return Math.max(n.generation, getMaxGen(n.father as TreeNode), getMaxGen(n.mother as TreeNode));
+                          })(treeNode) + 1 : 0}
                         </p>
                       </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
                         <p className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Formato</p>
-                        <p className="text-2xl font-black text-slate-900">4x A3</p>
+                        <p className="text-2xl font-black text-slate-900">A3 Grid</p>
                       </div>
                     </div>
                     
@@ -187,8 +225,8 @@ export default function GedcomToPdfPage() {
                       Gerar PDF para Impressão
                     </button>
                     
-                    <p className="text-xs text-slate-400 italic">
-                      O PDF será gerado localmente no seu navegador para total privacidade dos seus dados.
+                    <p className="text-xs text-slate-400 italic text-center">
+                      O PDF será gerado localmente no seu navegador.
                     </p>
                   </div>
                 ) : (
@@ -198,31 +236,6 @@ export default function GedcomToPdfPage() {
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Visual Guide Mockup */}
-            <div className="relative aspect-[16/3] bg-slate-200 rounded-xl overflow-hidden border border-slate-300 group">
-              <div className="absolute inset-0 flex">
-                {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className="flex-1 border-r border-slate-300 last:border-0 relative flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-slate-400">A3 #{i}</span>
-                    {i < 4 && (
-                      <div className="absolute right-0 top-0 bottom-0 w-[1px] bg-red-400/50 border-r border-dashed border-red-400" />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="absolute inset-0 flex items-center px-4">
-                <div className="w-full h-0.5 bg-indigo-400/30 rounded-full relative">
-                   <div className="absolute left-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-indigo-500 rounded-full" />
-                   <div className="absolute right-0 top-1/2 -translate-y-1/2 w-full h-full flex justify-around items-center">
-                      {[1,2,3,4,5,6].map(j => (
-                        <div key={j} className="w-1 h-1 bg-indigo-400 rounded-full" />
-                      ))}
-                   </div>
-                </div>
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </div>
         </div>

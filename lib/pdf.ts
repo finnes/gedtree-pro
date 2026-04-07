@@ -1,12 +1,38 @@
 import { jsPDF } from 'jspdf';
-import { Individual } from './gedcom';
+import { TreeNode, getMaxGen } from './gedcom';
 
-export function generateTreePDF(individuals: Individual[]) {
+export function generateTreePDF(rootNode: TreeNode) {
+  // Layout Constants (in mm)
   const PAGE_WIDTH = 420; // A3 Landscape
   const PAGE_HEIGHT = 297;
-  const TOTAL_WIDTH = PAGE_WIDTH * 4;
-  const BOX_WIDTH = 100;
-  const BOX_HEIGHT = 20;
+  const PRINT_MARGIN = 10;
+  const BOX_WIDTH = 70;
+  const BOX_HEIGHT = 12;
+  const BOX_SPACING = 2;
+  const GEN_WIDTH = 80;
+
+  // Calculate dimensions
+  const maxGen = getMaxGen(rootNode);
+  const treeWidth = (maxGen * GEN_WIDTH) + BOX_WIDTH + 40;
+  const treeHeight = rootNode.subtreeHeight;
+
+  // Adjust scale to fit vertically in max 2 pages
+  const maxAllowedHeight = (PAGE_HEIGHT - 2 * PRINT_MARGIN) * 1.9;
+  let scale = 1.0;
+  if (treeHeight > maxAllowedHeight) {
+    scale = maxAllowedHeight / treeHeight;
+    scale = Math.max(scale, 0.6); // Minimum scale 60%
+  }
+
+  const effWidth = PAGE_WIDTH - 2 * PRINT_MARGIN;
+  const effHeight = PAGE_HEIGHT - 2 * PRINT_MARGIN;
+
+  const cols = Math.ceil((treeWidth * scale) / effWidth);
+  const rows = Math.ceil((treeHeight * scale) / effHeight);
+
+  // Safety limits
+  const safeCols = Math.min(cols, 8);
+  const safeRows = Math.min(rows, 2);
 
   const doc = new jsPDF({
     orientation: 'landscape',
@@ -14,89 +40,151 @@ export function generateTreePDF(individuals: Individual[]) {
     format: 'a3'
   });
 
-  for (let page = 0; page < 4; page++) {
-    if (page > 0) doc.addPage('a3', 'landscape');
+  // Helper to draw a rounded rect with shadow
+  function drawBox(x: number, y: number, name: string, birth: string, death: string) {
+    // Shadow
+    doc.setFillColor(226, 232, 240); // slate-200
+    doc.roundedRect(x + 1, y + 1, BOX_WIDTH, BOX_HEIGHT, 2, 2, 'F');
     
-    const offsetX = page * PAGE_WIDTH;
+    // Box
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(203, 213, 225); // slate-300
+    doc.setLineWidth(0.3);
+    doc.roundedRect(x, y, BOX_WIDTH, BOX_HEIGHT, 2, 2, 'FD');
 
-    // Draw cut guide on pages 1, 2, 3
-    if (page < 3) {
+    // Name
+    doc.setTextColor(30, 41, 59); // slate-800
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    const nameStr = name.length > 30 ? name.substring(0, 30) + '...' : name;
+    doc.text(nameStr, x + 2, y + 4.5);
+
+    // Dates
+    doc.setTextColor(100, 116, 139); // slate-500
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    const bStr = birth ? `★ ${birth}` : '';
+    const dStr = death ? ` ✝ ${death}` : '';
+    let dateStr = `${bStr}   ${dStr}`.trim();
+    if (!dateStr) dateStr = 'Datas desconhecidas';
+    if (dateStr.length > 40) dateStr = dateStr.substring(0, 40) + '...';
+    doc.text(dateStr, x + 2, y + 9);
+  }
+
+  function drawConnectors(node: TreeNode) {
+    if (node.father) {
+      const startX = node.x + BOX_WIDTH;
+      const startY = node.y;
+      const endX = node.father.x;
+      const endY = node.father.y;
+      const midX = startX + (endX - startX) / 2;
+
+      doc.setDrawColor(148, 163, 184); // slate-400
+      doc.setLineWidth(0.4);
+      
+      doc.line(startX, startY, midX, startY);
+      doc.line(midX, startY, midX, endY);
+      doc.line(midX, endY, endX, endY);
+      
+      drawConnectors(node.father);
+    }
+    
+    if (node.mother) {
+      const startX = node.x + BOX_WIDTH;
+      const startY = node.y;
+      const endX = node.mother.x;
+      const endY = node.mother.y;
+      const midX = startX + (endX - startX) / 2;
+
+      doc.setDrawColor(148, 163, 184); // slate-400
+      doc.setLineWidth(0.4);
+      
+      doc.line(startX, startY, midX, startY);
+      doc.line(midX, startY, midX, endY);
+      doc.line(midX, endY, endX, endY);
+      
+      drawConnectors(node.mother);
+    }
+  }
+
+  function drawNodes(node: TreeNode) {
+    // Draw connectors first so they are behind boxes
+    drawConnectors(node);
+    
+    // Then draw boxes
+    function drawBoxRecursive(n: TreeNode) {
+      drawBox(n.x, n.y - BOX_HEIGHT / 2, n.name, n.birth, n.death);
+      if (n.father) drawBoxRecursive(n.father);
+      if (n.mother) drawBoxRecursive(n.mother);
+    }
+    drawBoxRecursive(node);
+  }
+
+  let pageCount = 0;
+
+  for (let r = 0; r < safeRows; r++) {
+    for (let col = 0; col < safeCols; col++) {
+      if (pageCount > 0) {
+        doc.addPage('a3', 'landscape');
+      }
+      pageCount++;
+
+      // Tiling logic
+      const tx = -(col * effWidth);
+      const ty = -((safeRows - 1 - r) * effHeight);
+
+      // We need to apply translation and scaling manually because jsPDF doesn't have a full transform stack like ReportLab
+      // But jsPDF has advanced API for this: doc.advancedAPI()
+      
+      doc.advancedAPI(api => {
+        api.saveGraphicsState();
+        
+        // Print margin
+        api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, PRINT_MARGIN, PRINT_MARGIN));
+        
+        // Clip to effective area
+        api.rect(0, 0, effWidth, effHeight);
+        api.clip();
+        
+        // Apply tiling translation and scale
+        api.setCurrentTransformationMatrix(api.Matrix(scale, 0, 0, scale, tx, ty));
+        
+        // Draw the tree
+        drawNodes(rootNode);
+        
+        api.restoreGraphicsState();
+      });
+
+      // Draw Margins and Guides
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.1);
+      doc.rect(PRINT_MARGIN, PRINT_MARGIN, effWidth, effHeight);
+
       doc.setDrawColor(255, 0, 0);
       doc.setLineDashPattern([2, 2], 0);
-      doc.line(PAGE_WIDTH - 0.5, 0, PAGE_WIDTH - 0.5, PAGE_HEIGHT);
+      
+      if (col < safeCols - 1) {
+        doc.line(PAGE_WIDTH - PRINT_MARGIN, PRINT_MARGIN, PAGE_WIDTH - PRINT_MARGIN, PAGE_HEIGHT - PRINT_MARGIN);
+      }
+      if (r < safeRows - 1) {
+        doc.line(PRINT_MARGIN, PRINT_MARGIN, PAGE_WIDTH - PRINT_MARGIN, PRINT_MARGIN);
+      }
+      
       doc.setLineDashPattern([], 0);
       
-      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
       doc.setTextColor(255, 0, 0);
-      doc.text('CORTE E COLE AQUI', PAGE_WIDTH - 5, PAGE_HEIGHT / 2, { angle: 90 });
-    }
-
-    // Draw individuals and connectors
-    individuals.forEach(indi => {
-      const x = indi.x - offsetX;
-      const y = indi.y;
-
-      // Only draw if it's within the current page view (plus some margin for connectors)
-      if (x + BOX_WIDTH > -100 && x < PAGE_WIDTH + 100) {
-        // Draw Box
-        if (x >= 0 && x <= PAGE_WIDTH - BOX_WIDTH) {
-           doc.setDrawColor(0);
-           doc.setLineWidth(0.2);
-           doc.rect(x, y - BOX_HEIGHT / 2, BOX_WIDTH, BOX_HEIGHT);
-           
-           doc.setFont('helvetica', 'bold');
-           doc.setFontSize(10);
-           doc.setTextColor(0);
-           doc.text(indi.name, x + 2, y - 2);
-           
-           doc.setFont('helvetica', 'normal');
-           doc.setFontSize(8);
-           const dates = `${indi.birthDate || ''} ${indi.deathDate ? '- ' + indi.deathDate : ''}`;
-           doc.text(dates, x + 2, y + 5);
-        } else if (x < 0 && x + BOX_WIDTH > 0) {
-           // Partial box on the left
-           const visibleWidth = BOX_WIDTH + x;
-           doc.rect(0, y - BOX_HEIGHT / 2, visibleWidth, BOX_HEIGHT);
-           // Text might be clipped, but we draw it anyway
-           doc.setFont('helvetica', 'bold');
-           doc.text(indi.name, x + 2, y - 2);
-        } else if (x < PAGE_WIDTH && x + BOX_WIDTH > PAGE_WIDTH) {
-           // Partial box on the right
-           const visibleWidth = PAGE_WIDTH - x;
-           doc.rect(x, y - BOX_HEIGHT / 2, visibleWidth, BOX_HEIGHT);
-           doc.setFont('helvetica', 'bold');
-           doc.text(indi.name, x + 2, y - 2);
-        }
-
-        // Draw Connectors to parents
-        const drawConnector = (parentId: string | undefined) => {
-          if (!parentId) return;
-          const parent = individuals.find(i => i.id === parentId);
-          if (!parent) return;
-
-          const startX = indi.x + BOX_WIDTH - offsetX;
-          const startY = indi.y;
-          const endX = parent.x - offsetX;
-          const endY = parent.y;
-          const midX = startX + (endX - startX) / 2;
-
-          doc.setDrawColor(0);
-          doc.setLineWidth(0.2);
-          // Orthogonal line (L-shape or Z-shape)
-          doc.line(startX, startY, midX, startY);
-          doc.line(midX, startY, midX, endY);
-          doc.line(midX, endY, endX, endY);
-        };
-
-        drawConnector(indi.fatherId);
-        drawConnector(indi.motherId);
+      const infoText = `Página ${r * safeCols + col + 1} (L${r + 1}, C${col + 1})`;
+      doc.text(infoText, PRINT_MARGIN, 5);
+      
+      if (col < safeCols - 1) {
+        doc.text("CORTE E COLE ->", PAGE_WIDTH - PRINT_MARGIN - 25, PAGE_HEIGHT / 2);
       }
-    });
-
-    // Page info
-    doc.setFontSize(10);
-    doc.setTextColor(150);
-    doc.text(`Página ${page + 1} de 4`, 10, PAGE_HEIGHT - 10);
+      if (r < safeRows - 1) {
+        doc.text("V CORTE E COLE V", PAGE_WIDTH / 2 - 15, 8);
+      }
+    }
   }
 
   doc.save('arvore_genealogica.pdf');
