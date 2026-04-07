@@ -24,6 +24,8 @@ export function cleanId(val: string | null | undefined): string {
 }
 
 export function parseGedcom(content: string): ParsedGedcom {
+  // Remove BOM if present
+  content = content.replace(/^\uFEFF/, '');
   const lines = content.split(/\r?\n/);
   
   const individuals: Record<string, Individual> = {};
@@ -37,14 +39,26 @@ export function parseGedcom(content: string): ParsedGedcom {
     line = line.trim();
     if (!line) continue;
     
-    // Match standard GEDCOM lines: "0 @I1@ INDI" or "1 NAME John /Doe/"
-    const match = line.match(/^(\d+)\s+(@[^@]+@\s+)?([A-Z0-9_]+)(?:\s+(.*))?$/);
-    if (!match) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 2) continue;
     
-    const level = parseInt(match[1], 10);
-    const idMatch = match[2] ? match[2].trim() : null;
-    let tag = match[3];
-    let value = match[4] || '';
+    const level = parseInt(parts[0], 10);
+    if (isNaN(level)) continue;
+    
+    let idMatch = null;
+    let tag = '';
+    let value = '';
+    
+    if (parts[1].startsWith('@') && parts[1].endsWith('@')) {
+      idMatch = parts[1];
+      tag = parts[2] || '';
+      value = parts.slice(3).join(' ');
+    } else {
+      tag = parts[1];
+      value = parts.slice(2).join(' ');
+    }
+    
+    tag = tag.toUpperCase();
     
     if (level === 0) {
       currentEvent = null;
@@ -53,9 +67,19 @@ export function parseGedcom(content: string): ParsedGedcom {
         const id = cleanId(idMatch);
         currentRecord = { id, name: 'Desconhecido', birth: '', death: '', famc: [] };
         individuals[id] = currentRecord;
+      } else if (tag === 'INDI' && value.startsWith('@')) {
+        currentType = 'INDI';
+        const id = cleanId(value.split(/\s+/)[0]);
+        currentRecord = { id, name: 'Desconhecido', birth: '', death: '', famc: [] };
+        individuals[id] = currentRecord;
       } else if (tag === 'FAM' && idMatch) {
         currentType = 'FAM';
         const id = cleanId(idMatch);
+        currentRecord = { id, husb: null, wife: null, chil: [] };
+        families[id] = currentRecord;
+      } else if (tag === 'FAM' && value.startsWith('@')) {
+        currentType = 'FAM';
+        const id = cleanId(value.split(/\s+/)[0]);
         currentRecord = { id, husb: null, wife: null, chil: [] };
         families[id] = currentRecord;
       } else {
