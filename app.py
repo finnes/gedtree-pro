@@ -29,8 +29,10 @@ class Individual:
         self.subtree_height = 0
 
 def get_name(indi):
-    name = indi.name.value
-    return name.replace("/", "").strip()
+    name_tag = indi.sub_tag("NAME")
+    if name_tag:
+        return name_tag.value.replace("/", "").strip()
+    return "Desconhecido"
 
 def get_date(indi, tag):
     event = indi.sub_tag(tag)
@@ -40,11 +42,11 @@ def get_date(indi, tag):
             return date.value
     return ""
 
-def build_tree(reader, indi_id, gen=0, max_gen=10):
+def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
     if gen >= max_gen:
         return None
     
-    indi_rec = reader.get_by_id(indi_id)
+    indi_rec = individuals.get(indi_id)
     if not indi_rec:
         return None
     
@@ -58,14 +60,14 @@ def build_tree(reader, indi_id, gen=0, max_gen=10):
     # Buscar pais
     famc = indi_rec.sub_tag("FAMC")
     if famc:
-        fam_rec = reader.get_by_id(famc.value)
+        fam_rec = families.get(famc.value)
         if fam_rec:
             husb = fam_rec.sub_tag("HUSB")
             wife = fam_rec.sub_tag("WIFE")
             if husb:
-                indi.father = build_tree(reader, husb.value, gen + 1, max_gen)
+                indi.father = build_tree(individuals, families, husb.value, gen + 1, max_gen)
             if wife:
-                indi.mother = build_tree(reader, wife.value, gen + 1, max_gen)
+                indi.mother = build_tree(individuals, families, wife.value, gen + 1, max_gen)
                 
     # Calcular altura da subárvore para evitar colisões
     h_f = indi.father.subtree_height if indi.father else (BOX_HEIGHT + BOX_SPACING)
@@ -187,14 +189,22 @@ if uploaded_file:
                 reader = GedcomReader("temp.ged")
 
             with reader:
-                # Pegar o primeiro indivíduo disponível
-                try:
-                    root_rec = next(reader.records0("INDI"))
-                except StopIteration:
+                individuals = {}
+                families = {}
+                
+                for rec in reader.records0("INDI"):
+                    individuals[rec.xref_id] = rec
+                    
+                for rec in reader.records0("FAM"):
+                    families[rec.xref_id] = rec
+
+                if not individuals:
                     st.error("Nenhum indivíduo (INDI) encontrado no arquivo GEDCOM.")
                     st.stop()
 
-                root_indi = build_tree(reader, root_rec.xref_id)
+                # Pegar o primeiro indivíduo disponível
+                root_id = list(individuals.keys())[0]
+                root_indi = build_tree(individuals, families, root_id)
                 
                 if root_indi:
                     layout_tree(root_indi, 20 * mm)
