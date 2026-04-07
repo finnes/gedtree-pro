@@ -228,21 +228,22 @@ if uploaded_file:
                 )
                 
                 if root_id:
-                    with st.spinner("Gerando PDF..."):
-                        root_indi = build_tree(individuals, families, root_id)
-                        
-                        if root_indi:
-                            layout_tree(root_indi, 20 * mm)
-                            pdf_buffer = generate_pdf(root_indi)
+                    if st.button("Gerar Árvore", type="primary"):
+                        with st.spinner("Gerando PDF..."):
+                            root_indi = build_tree(individuals, families, root_id)
                             
-                            st.success(f"Árvore pronta para: {root_indi.name}")
-                            st.download_button(
-                                label="📥 Baixar PDF (4x A3)",
-                                data=pdf_buffer,
-                                file_name="arvore_genealogica.pdf",
-                                mime="application/pdf"
-                            )
-                        else:
-                            st.error("Erro ao construir a árvore para esta pessoa.")
+                            if root_indi:
+                                layout_tree(root_indi, 20 * mm)
+                                pdf_buffer = generate_pdf(root_indi)
+                                
+                                st.success(f"Árvore pronta para: {root_indi.name}")
+                                st.download_button(
+                                    label="📥 Baixar PDF (4x A3)",
+                                    data=pdf_buffer,
+                                    file_name="arvore_genealogica.pdf",
+                                    mime="application/pdf"
+                                )
+                            else:
+                                st.error("Erro ao construir a árvore para esta pessoa.")
         except Exception as e:
             st.error(f"Erro ao processar: {e}")
