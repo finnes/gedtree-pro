@@ -1,0 +1,5 @@
+{
+  "name": "GEDCOM to PDF Tree",
+  "description": "Converte arquivos GEDCOM em uma árvore genealógica em PDF de alta resolução (estilo banner A3).",
+  "requestFramePermissions": []
+}
