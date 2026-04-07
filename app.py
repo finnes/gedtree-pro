@@ -31,7 +31,10 @@ class Individual:
 def get_name(indi):
     name_tag = indi.sub_tag("NAME")
     if name_tag:
-        return name_tag.value.replace("/", "").strip()
+        val = name_tag.value
+        if isinstance(val, tuple):
+            val = " ".join([str(v) for v in val if v])
+        return str(val).replace("/", "").strip()
     return "Desconhecido"
 
 def get_date(indi, tag):
@@ -39,7 +42,10 @@ def get_date(indi, tag):
     if event:
         date = event.sub_tag("DATE")
         if date:
-            return date.value
+            val = date.value
+            if isinstance(val, tuple):
+                val = " ".join([str(v) for v in val if v])
+            return str(val)
     return ""
 
 def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
