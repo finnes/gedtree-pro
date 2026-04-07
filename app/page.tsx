@@ -10,6 +10,7 @@ export default function GedcomToPdfPage() {
   const [file, setFile] = useState<File | null>(null);
   const [parsedData, setParsedData] = useState<ParsedGedcom | null>(null);
   const [rootId, setRootId] = useState<string>('');
+  const [source, setSource] = useState<string>('rootsmagic');
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,8 +18,8 @@ export default function GedcomToPdfPage() {
     const uploadedFile = e.target.files?.[0];
     if (!uploadedFile) return;
 
-    if (!uploadedFile.name.toLowerCase().endsWith('.ged')) {
-      setError('Por favor, envie um arquivo .ged válido.');
+    if (!uploadedFile.name.toLowerCase().endsWith('.ged') && !uploadedFile.name.toLowerCase().endsWith('.txt')) {
+      setError('Por favor, envie um arquivo .ged ou .txt válido.');
       return;
     }
 
@@ -28,7 +29,7 @@ export default function GedcomToPdfPage() {
 
     try {
       const content = await uploadedFile.text();
-      const parsed = parseGedcom(content);
+      const parsed = parseGedcom(content, source);
       
       if (Object.keys(parsed.individuals).length === 0) {
         throw new Error('Nenhum dado encontrado no arquivo GEDCOM.');
@@ -116,6 +117,24 @@ export default function GedcomToPdfPage() {
             </div>
 
             <div className="space-y-4">
+              <div className="space-y-3">
+                <label className="block text-sm font-bold text-slate-700">Software de Origem</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {['rootsmagic', 'myheritage', 'familysearch', 'other'].map(s => (
+                    <button
+                      key={s}
+                      onClick={() => setSource(s)}
+                      className={`px-4 py-3 rounded-xl border text-sm font-medium transition-all ${source === s ? 'bg-indigo-50 border-indigo-500 text-indigo-700' : 'bg-white border-slate-200 text-slate-600 hover:border-indigo-200'}`}
+                    >
+                      {s === 'rootsmagic' && 'RootsMagic'}
+                      {s === 'myheritage' && 'MyHeritage'}
+                      {s === 'familysearch' && 'FamilySearch'}
+                      {s === 'other' && 'Outro'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <label 
                 htmlFor="gedcom-upload"
                 className={`
@@ -129,7 +148,7 @@ export default function GedcomToPdfPage() {
                   type="file" 
                   id="gedcom-upload" 
                   className="hidden" 
-                  accept=".ged"
+                  accept=".ged,.txt"
                   onChange={handleFileUpload}
                 />
                 <div className="flex flex-col items-center text-center space-y-4">

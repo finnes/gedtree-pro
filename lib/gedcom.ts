@@ -23,7 +23,7 @@ export function cleanId(val: string | null | undefined): string {
   return val.replace(/@/g, '').trim();
 }
 
-export function parseGedcom(content: string): ParsedGedcom {
+export function parseGedcom(content: string, source: string = 'other'): ParsedGedcom {
   // Remove BOM and null bytes
   content = content.replace(/^\uFEFF/, '').replace(/\0/g, '');
   // Split by any newline character
@@ -46,9 +46,17 @@ export function parseGedcom(content: string): ParsedGedcom {
     if (!match) continue;
     
     const level = parseInt(match[1], 10);
-    const idMatch = match[2] ? match[2].trim() : null;
+    let idMatch = match[2] ? match[2].trim() : null;
     const tag = match[3].toUpperCase();
-    const value = match[4] ? match[4].trim() : '';
+    let value = match[4] ? match[4].trim() : '';
+    
+    // Some software (like older MyHeritage exports) might put the ID after the tag: "0 INDI @I1@"
+    if (level === 0 && !idMatch && value.match(/^@[^@]+@$/)) {
+      if (tag === 'INDI' || tag === 'FAM') {
+        idMatch = value;
+        value = '';
+      }
+    }
     
     if (level === 0) {
       currentEvent = null;
