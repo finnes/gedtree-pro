@@ -48,6 +48,15 @@ def get_date(indi, tag):
             return str(val)
     return ""
 
+def get_pointer(record, tag):
+    sub = record.sub_tag(tag)
+    if sub:
+        val = sub.value
+        if isinstance(val, tuple):
+            val = val[0]
+        return str(val).strip()
+    return None
+
 def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
     if gen >= max_gen:
         return None
@@ -64,16 +73,16 @@ def build_tree(individuals, families, indi_id, gen=0, max_gen=10):
     indi.generation = gen
     
     # Buscar pais
-    famc = indi_rec.sub_tag("FAMC")
-    if famc:
-        fam_rec = families.get(famc.value)
+    famc_val = get_pointer(indi_rec, "FAMC")
+    if famc_val:
+        fam_rec = families.get(famc_val)
         if fam_rec:
-            husb = fam_rec.sub_tag("HUSB")
-            wife = fam_rec.sub_tag("WIFE")
-            if husb:
-                indi.father = build_tree(individuals, families, husb.value, gen + 1, max_gen)
-            if wife:
-                indi.mother = build_tree(individuals, families, wife.value, gen + 1, max_gen)
+            husb_val = get_pointer(fam_rec, "HUSB")
+            wife_val = get_pointer(fam_rec, "WIFE")
+            if husb_val:
+                indi.father = build_tree(individuals, families, husb_val, gen + 1, max_gen)
+            if wife_val:
+                indi.mother = build_tree(individuals, families, wife_val, gen + 1, max_gen)
                 
     # Calcular altura da subárvore para evitar colisões
     h_f = indi.father.subtree_height if indi.father else (BOX_HEIGHT + BOX_SPACING)
@@ -135,17 +144,36 @@ def generate_pdf(root_indi):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=landscape(A3))
     
+    tree_height = root_indi.subtree_height
+    available_height = PAGE_HEIGHT - 20 * mm
+    
+    # Escalar a árvore se ela for maior que a altura da página
+    scale = 1.0
+    if tree_height > available_height:
+        scale = available_height / tree_height
+        
+    # Centralizar verticalmente
+    y_offset = (PAGE_HEIGHT - (tree_height * scale)) / 2
+    
     for page_index in range(4):
         # Tiling Logic: Translate the canvas
         c.saveState()
+        
+        # 1. Mover para a página correta (Fatiamento)
         c.translate(-PAGE_WIDTH * page_index, 0)
+        
+        # 2. Centralizar verticalmente
+        c.translate(0, y_offset)
+        
+        # 3. Aplicar escala para caber na folha A3
+        c.scale(scale, scale)
         
         # Desenhar a árvore completa (o clipping do ReportLab cuidará do resto)
         draw_tree(c, root_indi)
         
         c.restoreState()
         
-        # Guia de Corte
+        # Guia de Corte (desenhada sem escala, sempre no mesmo lugar físico)
         if page_index < 3:
             c.setStrokeColorRGB(1, 0, 0)
             c.setDash(2, 2)
@@ -233,7 +261,7 @@ if uploaded_file:
                             root_indi = build_tree(individuals, families, root_id)
                             
                             if root_indi:
-                                layout_tree(root_indi, 20 * mm)
+                                layout_tree(root_indi, 0)
                                 pdf_buffer = generate_pdf(root_indi)
                                 
                                 st.success(f"Árvore pronta para: {root_indi.name}")
