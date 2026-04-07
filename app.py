@@ -136,19 +136,10 @@ def draw_tree(c, indi):
     
     x, y = indi.x, indi.y
     
-    # Desenhar Box
-    c.setStrokeColorRGB(0, 0, 0)
-    c.setLineWidth(0.2 * mm)
-    c.rect(x, y - BOX_HEIGHT / 2, BOX_WIDTH, BOX_HEIGHT)
+    # Conectores (desenhados primeiro para ficarem atrás das caixas)
+    c.setStrokeColorRGB(148/255.0, 163/255.0, 184/255.0) # Slate 400
+    c.setLineWidth(1.5)
     
-    c.setFont("Helvetica-Bold", 10)
-    c.drawString(x + 2 * mm, y + 2 * mm, indi.name)
-    
-    c.setFont("Helvetica", 8)
-    dates = f"{indi.birth} {'- ' + indi.death if indi.death else ''}"
-    c.drawString(x + 2 * mm, y - 4 * mm, dates)
-    
-    # Conectores
     def draw_conn(parent):
         if not parent: return
         sx = x + BOX_WIDTH
@@ -163,6 +154,37 @@ def draw_tree(c, indi):
         
     draw_conn(indi.father)
     draw_conn(indi.mother)
+    
+    # Desenhar Sombra da Caixa
+    box_y = y - BOX_HEIGHT / 2
+    c.setFillColorRGB(241/255.0, 245/255.0, 249/255.0) # Slate 100
+    c.setStrokeColorRGB(241/255.0, 245/255.0, 249/255.0)
+    c.roundRect(x + 1.5 * mm, box_y - 1.5 * mm, BOX_WIDTH, BOX_HEIGHT, 3 * mm, stroke=0, fill=1)
+    
+    # Desenhar Caixa Principal
+    c.setFillColorRGB(1, 1, 1) # Branco
+    c.setStrokeColorRGB(203/255.0, 213/255.0, 225/255.0) # Slate 200
+    c.setLineWidth(1)
+    c.roundRect(x, box_y, BOX_WIDTH, BOX_HEIGHT, 3 * mm, stroke=1, fill=1)
+    
+    # Textos - Nome
+    c.setFillColorRGB(30/255.0, 41/255.0, 59/255.0) # Slate 800
+    c.setFont("Helvetica-Bold", 10)
+    name_str = indi.name[:35] + "..." if len(indi.name) > 35 else indi.name
+    c.drawString(x + 4 * mm, box_y + 12.5 * mm, name_str)
+    
+    # Textos - Datas
+    c.setFillColorRGB(100/255.0, 116/255.0, 139/255.0) # Slate 500
+    c.setFont("Helvetica", 8)
+    
+    b_str = f"★ {indi.birth}" if indi.birth else ""
+    d_str = f" ✝ {indi.death}" if indi.death else ""
+    date_str = f"{b_str}   {d_str}".strip()
+    if not date_str:
+        date_str = "Datas desconhecidas"
+        
+    date_str = date_str[:45] + "..." if len(date_str) > 45 else date_str
+    c.drawString(x + 4 * mm, box_y + 5 * mm, date_str)
     
     draw_tree(c, indi.father)
     draw_tree(c, indi.mother)
