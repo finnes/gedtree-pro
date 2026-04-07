@@ -15,31 +15,42 @@ export interface Individual {
 
 export function parseGedcom(content: string): Individual[] {
   const data = parse(content) as any;
+  // parse-gedcom returns either an array or an object with a tree property
   const records = Array.isArray(data) ? data : (data.tree || []);
+  
   const individualsMap: Record<string, any> = {};
   const familiesMap: Record<string, any> = {};
 
-  records.forEach((record: any) => {
-    if (record.tag === 'INDI') {
-      const nameTag = record.tree.find((t: any) => t.tag === 'NAME');
-      const birthTag = record.tree.find((t: any) => t.tag === 'BIRT');
-      const deathTag = record.tree.find((t: any) => t.tag === 'DEAT');
-      
-      const birthDate = birthTag?.tree.find((t: any) => t.tag === 'DATE')?.data;
-      const deathDate = deathTag?.tree.find((t: any) => t.tag === 'DATE')?.data;
+  if (records.length === 0) return [];
 
-      individualsMap[record.pointer] = {
-        id: record.pointer,
-        name: nameTag?.data?.replace(/\//g, '') || 'Unknown',
-        birthDate: birthDate || '',
-        deathDate: deathDate || '',
-        famc: record.tree.find((t: any) => t.tag === 'FAMC')?.data
-      };
-    } else if (record.tag === 'FAM') {
-      familiesMap[record.pointer] = {
-        husb: record.tree.find((t: any) => t.tag === 'HUSB')?.data,
-        wife: record.tree.find((t: any) => t.tag === 'WIFE')?.data
-      };
+  records.forEach((record: any) => {
+    const tag = record.tag?.toUpperCase();
+    if (tag === 'INDI') {
+      const nameTag = record.tree.find((t: any) => t.tag?.toUpperCase() === 'NAME');
+      const birthTag = record.tree.find((t: any) => t.tag?.toUpperCase() === 'BIRT');
+      const deathTag = record.tree.find((t: any) => t.tag?.toUpperCase() === 'DEAT');
+      
+      const birthDate = birthTag?.tree.find((t: any) => t.tag?.toUpperCase() === 'DATE')?.data;
+      const deathDate = deathTag?.tree.find((t: any) => t.tag?.toUpperCase() === 'DATE')?.data;
+
+      const id = record.pointer || record.data;
+      if (id) {
+        individualsMap[id] = {
+          id: id,
+          name: nameTag?.data?.replace(/\//g, ' ').trim() || 'Desconhecido',
+          birthDate: birthDate || '',
+          deathDate: deathDate || '',
+          famc: record.tree.find((t: any) => t.tag?.toUpperCase() === 'FAMC')?.data
+        };
+      }
+    } else if (tag === 'FAM') {
+      const id = record.pointer || record.data;
+      if (id) {
+        familiesMap[id] = {
+          husb: record.tree.find((t: any) => t.tag?.toUpperCase() === 'HUSB')?.data,
+          wife: record.tree.find((t: any) => t.tag?.toUpperCase() === 'WIFE')?.data
+        };
+      }
     }
   });
 

@@ -168,9 +168,32 @@ if uploaded_file:
             f.write(uploaded_file.getbuffer())
             
         try:
-            with GedcomReader("temp.ged") as reader:
-                # Pegar o primeiro indivíduo como raiz
-                root_rec = next(reader.records0("INDI"))
+            # Tentar diferentes encodings comuns em arquivos GEDCOM
+            encodings = ['utf-8', 'latin-1', 'utf-16', 'ascii']
+            reader = None
+            for enc in encodings:
+                try:
+                    reader = GedcomReader("temp.ged", encoding=enc)
+                    # Testar se consegue ler o primeiro registro
+                    next(reader.records0("INDI"))
+                    break
+                except:
+                    if reader: reader.close()
+                    reader = None
+                    continue
+            
+            if not reader:
+                # Se falhou com encoding específico, tenta o padrão do ged4py
+                reader = GedcomReader("temp.ged")
+
+            with reader:
+                # Pegar o primeiro indivíduo disponível
+                try:
+                    root_rec = next(reader.records0("INDI"))
+                except StopIteration:
+                    st.error("Nenhum indivíduo (INDI) encontrado no arquivo GEDCOM.")
+                    st.stop()
+
                 root_indi = build_tree(reader, root_rec.xref_id)
                 
                 if root_indi:
