@@ -9,11 +9,11 @@ import math
 # Configurações de Layout
 PAGE_WIDTH = 420 * mm
 PAGE_HEIGHT = 297 * mm
-TOTAL_WIDTH = PAGE_WIDTH * 4
-BOX_WIDTH = 100 * mm
-BOX_HEIGHT = 20 * mm
-BOX_SPACING = 10 * mm
-GEN_WIDTH = 150 * mm
+PRINT_MARGIN = 10 * mm
+BOX_WIDTH = 75 * mm
+BOX_HEIGHT = 14 * mm
+BOX_SPACING = 1.5 * mm
+GEN_WIDTH = 90 * mm
 
 class Individual:
     def __init__(self, indi_id, name, birth="", death=""):
@@ -176,13 +176,13 @@ def draw_tree(c, indi):
     
     # Textos - Nome
     c.setFillColorRGB(30/255.0, 41/255.0, 59/255.0) # Slate 800
-    c.setFont("Helvetica-Bold", 10)
-    name_str = indi.name[:35] + "..." if len(indi.name) > 35 else indi.name
-    c.drawString(x + 4 * mm, box_y + 12.5 * mm, name_str)
+    c.setFont("Helvetica-Bold", 9)
+    name_str = indi.name[:30] + "..." if len(indi.name) > 30 else indi.name
+    c.drawString(x + 3 * mm, box_y + 8.5 * mm, name_str)
     
     # Textos - Datas
     c.setFillColorRGB(100/255.0, 116/255.0, 139/255.0) # Slate 500
-    c.setFont("Helvetica", 8)
+    c.setFont("Helvetica", 7)
     
     b_str = f"★ {indi.birth}" if indi.birth else ""
     d_str = f" ✝ {indi.death}" if indi.death else ""
@@ -190,8 +190,8 @@ def draw_tree(c, indi):
     if not date_str:
         date_str = "Datas desconhecidas"
         
-    date_str = date_str[:45] + "..." if len(date_str) > 45 else date_str
-    c.drawString(x + 4 * mm, box_y + 5 * mm, date_str)
+    date_str = date_str[:40] + "..." if len(date_str) > 40 else date_str
+    c.drawString(x + 3 * mm, box_y + 3 * mm, date_str)
     
     draw_tree(c, indi.father)
     draw_tree(c, indi.mother)
@@ -200,73 +200,77 @@ def generate_pdf(root_indi):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=landscape(A3))
     
-    # Escala fixa 1.0 para garantir que a fonte (10pt/8pt) seja legível
-    scale = 1.0
-    
-    # Calcular dimensões reais da árvore
+    # Calcular dimensões reais da árvore com os novos espaçamentos
     max_g = get_max_gen(root_indi)
-    tree_width = (max_g * GEN_WIDTH) + BOX_WIDTH + 60 * mm
-    tree_height = root_indi.subtree_height
-    
-    # Garantir que o layout está atualizado com a escala 1.0
     layout_tree(root_indi, 0, GEN_WIDTH)
     
-    # Determinar quantas páginas A3 (420x297mm) são necessárias
-    cols = math.ceil(tree_width / PAGE_WIDTH)
-    rows = math.ceil(tree_height / PAGE_HEIGHT)
+    tree_width = (max_g * GEN_WIDTH) + BOX_WIDTH + 40 * mm
+    tree_height = root_indi.subtree_height
     
-    # Limite de segurança para evitar PDFs gigantescos
-    cols = min(cols, 12)
-    rows = min(rows, 12)
+    # Ajustar escala vertical se necessário para não passar de 1 ou 2 folhas de altura
+    # A altura de 2 folhas A3 é ~594mm. Vamos tentar manter em no máximo 2 folhas.
+    max_allowed_height = (PAGE_HEIGHT - 2 * PRINT_MARGIN) * 1.8 # Quase 2 folhas
+    scale = 1.0
+    if tree_height > max_allowed_height:
+        scale = max_allowed_height / tree_height
+        # Não deixar a escala ficar menor que 0.7 para manter legibilidade
+        scale = max(scale, 0.7)
+    
+    # Recalcular layout com a escala aplicada
+    layout_tree(root_indi, 0, GEN_WIDTH)
+    
+    # Determinar quantas páginas A3 são necessárias
+    # O conteúdo efetivo por página desconta as margens
+    eff_width = PAGE_WIDTH - 2 * PRINT_MARGIN
+    eff_height = PAGE_HEIGHT - 2 * PRINT_MARGIN
+    
+    cols = math.ceil((tree_width * scale) / eff_width)
+    rows = math.ceil((tree_height * scale) / eff_height)
+    
+    # Limite de segurança
+    cols = min(cols, 6)
+    rows = min(rows, 2) # Forçar no máximo 2 linhas de altura
     
     for r in range(rows):
-        # r=0 é a linha de cima (topo da árvore)
-        # r=rows-1 é a linha de baixo (base da árvore)
         for col in range(cols):
             c.saveState()
             
-            # Tiling Logic:
-            # tx desloca horizontalmente para a "coluna"
-            # ty desloca verticalmente para a "linha"
-            # Como o PDF (0,0) é o canto inferior esquerdo:
-            # A linha r=0 deve mostrar o topo da árvore (y próximo a tree_height)
-            # A linha r=rows-1 deve mostrar a base da árvore (y próximo a 0)
+            # Margem de impressão
+            c.translate(PRINT_MARGIN, PRINT_MARGIN)
             
-            tx = -col * PAGE_WIDTH
-            ty = -(rows - 1 - r) * PAGE_HEIGHT
+            # Clipping para não desenhar na margem
+            path = c.beginPath()
+            path.rect(0, 0, eff_width, eff_height)
+            c.clipPath(path, stroke=0, fill=0)
+            
+            # Tiling Logic com escala
+            tx = -col * eff_width
+            ty = -(rows - 1 - r) * eff_height
             
             c.translate(tx, ty)
+            c.scale(scale, scale)
             
-            # Desenhar a árvore na escala original
             draw_tree(c, root_indi)
             
             c.restoreState()
             
-            # Guias de Corte e Identificação
-            c.setStrokeColorRGB(1, 0, 0) # Vermelho para guias
+            # Guias e Margens
+            c.setStrokeColorRGB(0.8, 0.8, 0.8) # Cinza claro para margem
             c.setLineWidth(0.1 * mm)
+            c.rect(PRINT_MARGIN, PRINT_MARGIN, eff_width, eff_height)
+            
+            c.setStrokeColorRGB(1, 0, 0)
             c.setDash(2, 2)
-            
-            # Borda Direita (se houver próxima coluna)
             if col < cols - 1:
-                c.line(PAGE_WIDTH - 0.5, 0, PAGE_WIDTH - 0.5, PAGE_HEIGHT)
-            
-            # Borda Inferior (se houver próxima linha)
+                c.line(PAGE_WIDTH - PRINT_MARGIN, PRINT_MARGIN, PAGE_WIDTH - PRINT_MARGIN, PAGE_HEIGHT - PRINT_MARGIN)
             if r < rows - 1:
-                c.line(0, 0.5, PAGE_WIDTH, 0.5)
+                c.line(PRINT_MARGIN, PRINT_MARGIN, PAGE_WIDTH - PRINT_MARGIN, PRINT_MARGIN)
                 
             c.setDash()
             c.setFont("Helvetica", 7)
             c.setFillColorRGB(1, 0, 0)
-            
-            # Texto de ajuda nas bordas
-            info_text = f"Página {r * cols + col + 1} (Linha {r+1}, Col {col+1})"
-            c.drawString(5 * mm, 5 * mm, info_text)
-            
-            if col < cols - 1:
-                c.drawCentredString(PAGE_WIDTH - 10 * mm, PAGE_HEIGHT / 2, "CORTE E COLE ->")
-            if r < rows - 1:
-                c.drawCentredString(PAGE_WIDTH / 2, 10 * mm, "V CORTE E COLE V")
+            info_text = f"Página {r * cols + col + 1} (L{r+1}, C{col+1})"
+            c.drawString(PRINT_MARGIN, 5 * mm, info_text)
             
             c.showPage()
             
