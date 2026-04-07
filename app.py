@@ -200,62 +200,76 @@ def generate_pdf(root_indi):
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=landscape(A3))
     
-    tree_height = root_indi.subtree_height
-    available_height = PAGE_HEIGHT - 40 * mm # Margem maior para segurança
-    
-    # Escalar a árvore se ela for maior que a altura da página
+    # Escala fixa 1.0 para garantir que a fonte (10pt/8pt) seja legível
     scale = 1.0
-    if tree_height > available_height:
-        scale = available_height / tree_height
-        
-    # Recalcular o layout com um GEN_WIDTH dinâmico para espalhar a árvore
-    # Queremos que a árvore ocupe boa parte dos 1680mm
-    max_g = get_max_gen(root_indi)
-    if max_g > 0:
-        # A largura final na página será: (max_g * dynamic_gen_width) * scale
-        # Queremos que isso seja próximo de TOTAL_WIDTH - margens
-        target_w = TOTAL_WIDTH - 150 * mm
-        dynamic_gen_w = target_w / (max_g * scale)
-        # Limitar para não ficar absurdamente largo ou estreito
-        dynamic_gen_w = max(150 * mm, min(dynamic_gen_w, 800 * mm))
-    else:
-        dynamic_gen_w = GEN_WIDTH
-        
-    layout_tree(root_indi, 0, dynamic_gen_w)
-        
-    # Centralizar verticalmente
-    y_offset = (PAGE_HEIGHT - (tree_height * scale)) / 2
     
-    for page_index in range(4):
-        # Tiling Logic: Translate the canvas
-        c.saveState()
-        
-        # 1. Mover para a página correta (Fatiamento)
-        c.translate(-PAGE_WIDTH * page_index, 0)
-        
-        # 2. Centralizar verticalmente
-        c.translate(0, y_offset)
-        
-        # 3. Aplicar escala para caber na folha A3
-        c.scale(scale, scale)
-        
-        # Desenhar a árvore completa (o clipping do ReportLab cuidará do resto)
-        draw_tree(c, root_indi)
-        
-        c.restoreState()
-        
-        # Guia de Corte (desenhada sem escala, sempre no mesmo lugar físico)
-        if page_index < 3:
-            c.setStrokeColorRGB(1, 0, 0)
-            c.setDash(2, 2)
-            c.line(PAGE_WIDTH - 0.5, 0, PAGE_WIDTH - 0.5, PAGE_HEIGHT)
-            c.setDash()
-            c.setFont("Helvetica", 8)
-            c.setFillColorRGB(1, 0, 0)
-            c.drawCentredString(PAGE_WIDTH - 5 * mm, PAGE_HEIGHT / 2, "CORTE E COLE AQUI")
+    # Calcular dimensões reais da árvore
+    max_g = get_max_gen(root_indi)
+    tree_width = (max_g * GEN_WIDTH) + BOX_WIDTH + 60 * mm
+    tree_height = root_indi.subtree_height
+    
+    # Garantir que o layout está atualizado com a escala 1.0
+    layout_tree(root_indi, 0, GEN_WIDTH)
+    
+    # Determinar quantas páginas A3 (420x297mm) são necessárias
+    cols = math.ceil(tree_width / PAGE_WIDTH)
+    rows = math.ceil(tree_height / PAGE_HEIGHT)
+    
+    # Limite de segurança para evitar PDFs gigantescos
+    cols = min(cols, 12)
+    rows = min(rows, 12)
+    
+    for r in range(rows):
+        # r=0 é a linha de cima (topo da árvore)
+        # r=rows-1 é a linha de baixo (base da árvore)
+        for col in range(cols):
+            c.saveState()
             
-        c.showPage()
-        
+            # Tiling Logic:
+            # tx desloca horizontalmente para a "coluna"
+            # ty desloca verticalmente para a "linha"
+            # Como o PDF (0,0) é o canto inferior esquerdo:
+            # A linha r=0 deve mostrar o topo da árvore (y próximo a tree_height)
+            # A linha r=rows-1 deve mostrar a base da árvore (y próximo a 0)
+            
+            tx = -col * PAGE_WIDTH
+            ty = -(rows - 1 - r) * PAGE_HEIGHT
+            
+            c.translate(tx, ty)
+            
+            # Desenhar a árvore na escala original
+            draw_tree(c, root_indi)
+            
+            c.restoreState()
+            
+            # Guias de Corte e Identificação
+            c.setStrokeColorRGB(1, 0, 0) # Vermelho para guias
+            c.setLineWidth(0.1 * mm)
+            c.setDash(2, 2)
+            
+            # Borda Direita (se houver próxima coluna)
+            if col < cols - 1:
+                c.line(PAGE_WIDTH - 0.5, 0, PAGE_WIDTH - 0.5, PAGE_HEIGHT)
+            
+            # Borda Inferior (se houver próxima linha)
+            if r < rows - 1:
+                c.line(0, 0.5, PAGE_WIDTH, 0.5)
+                
+            c.setDash()
+            c.setFont("Helvetica", 7)
+            c.setFillColorRGB(1, 0, 0)
+            
+            # Texto de ajuda nas bordas
+            info_text = f"Página {r * cols + col + 1} (Linha {r+1}, Col {col+1})"
+            c.drawString(5 * mm, 5 * mm, info_text)
+            
+            if col < cols - 1:
+                c.drawCentredString(PAGE_WIDTH - 10 * mm, PAGE_HEIGHT / 2, "CORTE E COLE ->")
+            if r < rows - 1:
+                c.drawCentredString(PAGE_WIDTH / 2, 10 * mm, "V CORTE E COLE V")
+            
+            c.showPage()
+            
     c.save()
     buffer.seek(0)
     return buffer
