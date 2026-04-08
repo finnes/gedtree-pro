@@ -69,10 +69,10 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
 
     // Calculate scale to fit vertically in max 6 pages
     const maxAllowedHeight = effHeight * 6;
-    let scale = 1.0;
-    if (totalHeight > maxAllowedHeight) {
+    let scale = 0.35; // Base scale: 1 pixel = 0.35 mm (approx 72 DPI)
+    if (totalHeight * scale > maxAllowedHeight) {
       scale = maxAllowedHeight / totalHeight;
-      scale = Math.max(scale, 0.2); // Minimum scale 20%
+      scale = Math.max(scale, 0.1); // Minimum scale 10%
     }
 
     const cols = Math.ceil((totalWidth * scale) / effWidth);
@@ -91,20 +91,20 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
         if (pageCount > 0) doc.addPage(pageSize.toLowerCase(), 'landscape');
         pageCount++;
 
-        const tx = -(col * effWidth);
-        const ty = -(r * effHeight);
+        const currentOffsetX = minX + (col * effWidth - PRINT_MARGIN) / scale;
+        const currentOffsetY = minY + (r * effHeight - PRINT_MARGIN) / scale;
 
         doc.advancedAPI(api => {
           api.saveGraphicsState();
           api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, PRINT_MARGIN, PRINT_MARGIN));
           api.rect(0, 0, effWidth, effHeight);
           api.clip();
-          
-          // Apply translation to center the bounding box
-          api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, tx, ty));
-          
-          drawNodesAndEdges(doc, nodes, edges, minX, minY, scale, effWidth, effHeight, col, r);
-          
+          api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, -PRINT_MARGIN, -PRINT_MARGIN));
+        });
+
+        drawNodesAndEdges(doc, nodes, edges, currentOffsetX, currentOffsetY, scale, effWidth, effHeight, col, r);
+
+        doc.advancedAPI(api => {
           api.restoreGraphicsState();
         });
 
@@ -160,20 +160,25 @@ function drawNodesAndEdges(
     const targetNode = nodes.find(n => n.id === edge.target);
     
     if (sourceNode && targetNode) {
-      let startX = (sourceNode.position.x + 160 / 2 - offsetX) * scale;
-      let startY = (sourceNode.position.y + 50 / 2 - offsetY) * scale;
-      let endX = (targetNode.position.x + 160 / 2 - offsetX) * scale;
-      let endY = (targetNode.position.y + 50 / 2 - offsetY) * scale;
+      const sourceW = sourceNode.type === 'family' ? 8 : 160;
+      const sourceH = sourceNode.type === 'family' ? 8 : 50;
+      const targetW = targetNode.type === 'family' ? 8 : 160;
+      const targetH = targetNode.type === 'family' ? 8 : 50;
+
+      let startX = (sourceNode.position.x + sourceW / 2 - offsetX) * scale;
+      let startY = (sourceNode.position.y + sourceH / 2 - offsetY) * scale;
+      let endX = (targetNode.position.x + targetW / 2 - offsetX) * scale;
+      let endY = (targetNode.position.y + targetH / 2 - offsetY) * scale;
 
       // Adjust start/end points based on handles if available
-      if (edge.sourceHandle === 'source-right') startX = (sourceNode.position.x + 160 - offsetX) * scale;
+      if (edge.sourceHandle === 'source-right') startX = (sourceNode.position.x + sourceW - offsetX) * scale;
       if (edge.sourceHandle === 'source-left') startX = (sourceNode.position.x - offsetX) * scale;
-      if (edge.sourceHandle === 'source-bottom') startY = (sourceNode.position.y + 50 - offsetY) * scale;
+      if (edge.sourceHandle === 'source-bottom') startY = (sourceNode.position.y + sourceH - offsetY) * scale;
       if (edge.sourceHandle === 'source-top') startY = (sourceNode.position.y - offsetY) * scale;
 
-      if (edge.targetHandle === 'target-right') endX = (targetNode.position.x + 160 - offsetX) * scale;
+      if (edge.targetHandle === 'target-right') endX = (targetNode.position.x + targetW - offsetX) * scale;
       if (edge.targetHandle === 'target-left') endX = (targetNode.position.x - offsetX) * scale;
-      if (edge.targetHandle === 'target-bottom') endY = (targetNode.position.y + 50 - offsetY) * scale;
+      if (edge.targetHandle === 'target-bottom') endY = (targetNode.position.y + targetH - offsetY) * scale;
       if (edge.targetHandle === 'target-top') endY = (targetNode.position.y - offsetY) * scale;
 
       const style = edge.style || {};
@@ -224,6 +229,12 @@ function drawNodesAndEdges(
   nodes.filter(n => n.type !== 'boundary').forEach(node => {
     const x = (node.position.x - offsetX) * scale;
     const y = (node.position.y - offsetY) * scale;
+
+    if (node.type === 'family') {
+      doc.setFillColor(148, 163, 184); // slate-400
+      doc.circle(x + 4 * scale, y + 4 * scale, 4 * scale, 'F');
+      return;
+    }
 
     // Shadow
     doc.setFillColor(226, 232, 240); // slate-200

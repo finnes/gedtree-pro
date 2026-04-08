@@ -21,18 +21,20 @@ import { MousePointer2, Hand, ZoomIn, ZoomOut, Maximize, Minimize, Focus, Undo2,
 
 // Custom Node Component for a Person
 const PersonNode = ({ id, data }: { id: string, data: any }) => {
-  const { setNodes } = useReactFlow();
+  const { setNodes, setEdges } = useReactFlow();
   
   const onDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     setNodes((nodes) => nodes.filter((node) => node.id !== id));
+    setEdges((edges) => edges.filter((edge) => edge.source !== id && edge.target !== id));
   };
 
   return (
     <div className="bg-white border border-slate-300 rounded-lg shadow-sm w-[160px] p-3 flex flex-col items-center justify-center relative group hover:border-indigo-400 hover:shadow-md transition-all">
       <button 
         onClick={onDelete}
-        className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+        onPointerDown={(e) => e.stopPropagation()}
+        className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-red-200"
       >
         <X size={12} />
       </button>
@@ -68,9 +70,26 @@ const BoundaryNode = ({ data }: { data: any }) => {
   );
 };
 
+const FamilyNode = ({ id }: { id: string }) => {
+  return (
+    <div className="w-2 h-2 bg-slate-400 rounded-full flex items-center justify-center relative">
+      <Handle type="target" position={Position.Left} id="target-left" className="w-1 h-1 opacity-0" />
+      <Handle type="target" position={Position.Right} id="target-right" className="w-1 h-1 opacity-0" />
+      <Handle type="target" position={Position.Top} id="target-top" className="w-1 h-1 opacity-0" />
+      <Handle type="target" position={Position.Bottom} id="target-bottom" className="w-1 h-1 opacity-0" />
+      
+      <Handle type="source" position={Position.Left} id="source-left" className="w-1 h-1 opacity-0" />
+      <Handle type="source" position={Position.Right} id="source-right" className="w-1 h-1 opacity-0" />
+      <Handle type="source" position={Position.Top} id="source-top" className="w-1 h-1 opacity-0" />
+      <Handle type="source" position={Position.Bottom} id="source-bottom" className="w-1 h-1 opacity-0" />
+    </div>
+  );
+};
+
 const nodeTypes = {
   person: PersonNode,
   boundary: BoundaryNode,
+  family: FamilyNode,
 };
 
 interface FlowContentProps {
@@ -199,6 +218,17 @@ const FlowContent = ({ nodes, edges, setNodes, onNodesChange, onEdgesChange, isF
           {isFullscreen ? <Minimize size={20}/> : <Maximize size={20}/>}
         </button>
       </Panel>
+      <Panel position="bottom-left" className="bg-white/90 backdrop-blur-sm p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col gap-2 m-4 text-xs font-medium text-slate-600">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-0.5 bg-blue-500"></div> Pais
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-0.5 bg-emerald-500"></div> Filhos
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-0.5 border-t border-dashed border-pink-500"></div> Cônjuges
+        </div>
+      </Panel>
     </ReactFlow>
   );
 };
@@ -249,54 +279,40 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
 
         if (type === 'parent') {
           strokeColor = '#3b82f6'; // blue-500
-          strokeWidth = 1.0;
+          strokeWidth = 0.5;
         } else if (type === 'spouse') {
           strokeColor = '#ec4899'; // pink-500
-          strokeWidth = 1.0;
+          strokeWidth = 0.5;
           strokeDasharray = '5,5'; // dashed for spouses
         } else if (type === 'child') {
           strokeColor = '#10b981'; // emerald-500
-          strokeWidth = 1.0;
+          strokeWidth = 0.5;
         }
 
         let sourceHandle = 'source-bottom';
         let targetHandle = 'target-top';
 
-        if (layoutMode === 'horizontal') {
-          if (type === 'parent') {
-            sourceHandle = 'source-left';
-            targetHandle = 'target-right';
-          } else if (type === 'child') {
+        // Calculate relative position to determine best handles
+        const dx = target.x - node.x;
+        const dy = target.y - node.y;
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          // Horizontal connection
+          if (dx > 0) {
             sourceHandle = 'source-right';
             targetHandle = 'target-left';
-          } else if (type === 'spouse') {
+          } else {
+            sourceHandle = 'source-left';
+            targetHandle = 'target-right';
+          }
+        } else {
+          // Vertical connection
+          if (dy > 0) {
             sourceHandle = 'source-bottom';
             targetHandle = 'target-top';
-          }
-        } else if (layoutMode === 'vertical') {
-          if (type === 'parent') {
+          } else {
             sourceHandle = 'source-top';
             targetHandle = 'target-bottom';
-          } else if (type === 'child') {
-            sourceHandle = 'source-bottom';
-            targetHandle = 'target-top';
-          } else if (type === 'spouse') {
-            // Determine left/right based on relative X position
-            if (target.x > node.x) {
-              sourceHandle = 'source-right';
-              targetHandle = 'target-left';
-            } else {
-              sourceHandle = 'source-left';
-              targetHandle = 'target-right';
-            }
-          }
-        } else if (layoutMode === 'butterfly') {
-          if (node.x < 0) {
-            sourceHandle = 'source-left';
-            targetHandle = 'target-right';
-          } else {
-            sourceHandle = 'source-right';
-            targetHandle = 'target-left';
           }
         }
 
@@ -313,9 +329,101 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
         traverse(target);
       };
 
-      node.parents.forEach(p => addEdge(p, 'parent'));
-      node.spouses.forEach(s => addEdge(s, 'spouse'));
-      node.children.forEach(c => addEdge(c, 'child'));
+      node.parents.forEach(p => traverse(p));
+
+      // Group children by family
+      const childrenByFamily: Record<string, TreeNode[]> = {};
+      node.children.forEach(c => {
+        const parentIds = c.parents.map(p => p.id).sort().join('-');
+        if (!childrenByFamily[parentIds]) childrenByFamily[parentIds] = [];
+        childrenByFamily[parentIds].push(c);
+      });
+
+      Object.entries(childrenByFamily).forEach(([famId, children]) => {
+        const familyNodeId = `fam-${famId}`;
+        
+        if (!visited.has(familyNodeId)) {
+          visited.add(familyNodeId);
+          
+          const parents = children[0].parents;
+          const px = parents.reduce((sum, p) => sum + p.x, 0) / parents.length;
+          const py = parents.reduce((sum, p) => sum + p.y, 0) / parents.length;
+          
+          newNodes.push({
+            id: familyNodeId,
+            type: 'family',
+            position: { x: px + 160/2 - 4, y: py + 50/2 - 4 },
+            data: {},
+          });
+
+          parents.forEach(p => {
+            let sourceHandle = 'source-bottom';
+            let targetHandle = 'target-top';
+            
+            const dx = px - p.x;
+            const dy = py - p.y;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+              sourceHandle = dx > 0 ? 'source-right' : 'source-left';
+              targetHandle = dx > 0 ? 'target-left' : 'target-right';
+            } else {
+              sourceHandle = dy > 0 ? 'source-bottom' : 'source-top';
+              targetHandle = dy > 0 ? 'target-top' : 'target-bottom';
+            }
+
+            newEdges.push({
+              id: `e-${p.id}-${familyNodeId}`,
+              source: p.id,
+              target: familyNodeId,
+              sourceHandle,
+              targetHandle,
+              type: 'smoothstep',
+              style: { 
+                stroke: parents.length > 1 ? '#ec4899' : '#3b82f6', 
+                strokeWidth: 0.5, 
+                strokeDasharray: parents.length > 1 ? '5,5' : 'none' 
+              },
+            });
+          });
+
+          children.forEach(c => {
+            let sourceHandle = 'source-bottom';
+            let targetHandle = 'target-top';
+            
+            const dx = c.x - px;
+            const dy = c.y - py;
+
+            if (Math.abs(dx) > Math.abs(dy)) {
+              sourceHandle = dx > 0 ? 'source-right' : 'source-left';
+              targetHandle = dx > 0 ? 'target-left' : 'target-right';
+            } else {
+              sourceHandle = dy > 0 ? 'source-bottom' : 'source-top';
+              targetHandle = dy > 0 ? 'target-top' : 'target-bottom';
+            }
+
+            newEdges.push({
+              id: `e-${familyNodeId}-${c.id}`,
+              source: familyNodeId,
+              target: c.id,
+              sourceHandle,
+              targetHandle,
+              type: 'smoothstep',
+              style: { stroke: '#10b981', strokeWidth: 0.5 },
+            });
+          });
+        }
+        
+        children.forEach(c => traverse(c));
+      });
+
+      node.spouses.forEach(s => {
+        const haveChildrenTogether = node.children.some(c => c.parents.includes(s));
+        if (!haveChildrenTogether) {
+          addEdge(s, 'spouse');
+        } else {
+          traverse(s);
+        }
+      });
     };
 
     traverse(rootNode);

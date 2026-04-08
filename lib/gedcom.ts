@@ -102,6 +102,35 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
     }
   }
   
+  // Deduplicate individuals based on exact name and birth date match
+  const uniqueMap = new Map<string, string>(); // key: name+birth, value: primaryId
+  const idReplacements: Record<string, string> = {};
+
+  for (const [id, indi] of Object.entries(individuals)) {
+    if (!indi.name || indi.name === 'Desconhecido') continue;
+    
+    const key = `${indi.name.toLowerCase().trim()}|${indi.birth?.trim() || ''}`;
+    if (uniqueMap.has(key)) {
+      const primaryId = uniqueMap.get(key)!;
+      idReplacements[id] = primaryId;
+      
+      // Merge data if primary is missing something
+      const primary = individuals[primaryId];
+      if (!primary.death && indi.death) primary.death = indi.death;
+      
+      delete individuals[id];
+    } else {
+      uniqueMap.set(key, id);
+    }
+  }
+
+  // Update families with replaced IDs
+  for (const fam of Object.values(families)) {
+    if (fam.husb && idReplacements[fam.husb]) fam.husb = idReplacements[fam.husb];
+    if (fam.wife && idReplacements[fam.wife]) fam.wife = idReplacements[fam.wife];
+    fam.chil = fam.chil.map(childId => idReplacements[childId] || childId);
+  }
+
   return { individuals, families };
 }
 
