@@ -147,8 +147,8 @@ function drawNodesAndEdges(
   const BOX_HEIGHT = 50 * scale;
 
   // Draw Edges
-  doc.setDrawColor(148, 163, 184); // slate-400
-  doc.setLineWidth(1.5 * scale);
+  doc.setDrawColor(71, 85, 105); // slate-600
+  doc.setLineWidth(2 * scale);
   
   edges.forEach(edge => {
     const sourceNode = nodes.find(n => n.id === edge.source);

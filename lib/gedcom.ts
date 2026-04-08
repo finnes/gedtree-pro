@@ -110,9 +110,13 @@ export interface TreeNode {
   name: string;
   birth: string;
   death: string;
+  generation: number;
+  father: TreeNode | null;
+  mother: TreeNode | null;
   parents: TreeNode[];
   spouses: TreeNode[];
   children: TreeNode[];
+  subtreeHeight: number;
   x: number;
   y: number;
 }
@@ -125,7 +129,7 @@ export function buildTree(
   const nodes: Record<string, TreeNode> = {};
   const visited = new Set<string>();
 
-  function getOrCreateNode(id: string): TreeNode {
+  function getOrCreateNode(id: string, gen: number): TreeNode {
     if (!nodes[id]) {
       const indi = individuals[id];
       nodes[id] = {
@@ -133,9 +137,13 @@ export function buildTree(
         name: indi ? indi.name : 'Desconhecido',
         birth: indi ? indi.birth : '',
         death: indi ? indi.death : '',
+        generation: gen,
+        father: null,
+        mother: null,
         parents: [],
         spouses: [],
         children: [],
+        subtreeHeight: 0,
         x: 0,
         y: 0
       };
@@ -143,12 +151,12 @@ export function buildTree(
     return nodes[id];
   }
 
-  const queue = [rootId];
+  const queue = [{id: rootId, gen: 0}];
   visited.add(rootId);
 
   while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    const node = getOrCreateNode(currentId);
+    const {id: currentId, gen} = queue.shift()!;
+    const node = getOrCreateNode(currentId, gen);
     const indi = individuals[currentId];
 
     if (!indi) continue;
@@ -156,31 +164,33 @@ export function buildTree(
     for (const f of Object.values(families)) {
       if (f.chil.includes(currentId)) {
         if (f.husb) {
-          const father = getOrCreateNode(f.husb);
+          const father = getOrCreateNode(f.husb, gen + 1);
           if (!node.parents.includes(father)) node.parents.push(father);
           if (!father.children.includes(node)) father.children.push(node);
-          if (!visited.has(f.husb)) { visited.add(f.husb); queue.push(f.husb); }
+          node.father = father;
+          if (!visited.has(f.husb)) { visited.add(f.husb); queue.push({id: f.husb, gen: gen + 1}); }
         }
         if (f.wife) {
-          const mother = getOrCreateNode(f.wife);
+          const mother = getOrCreateNode(f.wife, gen + 1);
           if (!node.parents.includes(mother)) node.parents.push(mother);
           if (!mother.children.includes(node)) mother.children.push(node);
-          if (!visited.has(f.wife)) { visited.add(f.wife); queue.push(f.wife); }
+          node.mother = mother;
+          if (!visited.has(f.wife)) { visited.add(f.wife); queue.push({id: f.wife, gen: gen + 1}); }
         }
       }
       if (f.husb === currentId || f.wife === currentId) {
         const spouseId = f.husb === currentId ? f.wife : f.husb;
         if (spouseId) {
-          const spouse = getOrCreateNode(spouseId);
+          const spouse = getOrCreateNode(spouseId, gen);
           if (!node.spouses.includes(spouse)) node.spouses.push(spouse);
           if (!spouse.spouses.includes(node)) spouse.spouses.push(node);
-          if (!visited.has(spouseId)) { visited.add(spouseId); queue.push(spouseId); }
+          if (!visited.has(spouseId)) { visited.add(spouseId); queue.push({id: spouseId, gen}); }
         }
         for (const childId of f.chil) {
-          const child = getOrCreateNode(childId);
+          const child = getOrCreateNode(childId, gen - 1);
           if (!node.children.includes(child)) node.children.push(child);
           if (!child.parents.includes(node)) child.parents.push(node);
-          if (!visited.has(childId)) { visited.add(childId); queue.push(childId); }
+          if (!visited.has(childId)) { visited.add(childId); queue.push({id: childId, gen: gen - 1}); }
         }
       }
     }
@@ -190,28 +200,94 @@ export function buildTree(
 }
 
 export function applyLayout(root: TreeNode, mode: string) {
-  const SPACING = 200;
-  const visited = new Set<string>();
-  const queue: {node: TreeNode, x: number, y: number}[] = [{node: root, x: 0, y: 0}];
-  visited.add(root.id);
+  const BOX_WIDTH = 160;
+  const BOX_HEIGHT = 50;
+  const SPACING_X = 100;
+  const SPACING_Y = 50;
 
-  while (queue.length > 0) {
-    const {node, x, y} = queue.shift()!;
-    node.x = x;
-    node.y = y;
-
-    const neighbors = [...node.parents, ...node.spouses, ...node.children];
-    let angle = 0;
-    const angleStep = (2 * Math.PI) / (neighbors.length || 1);
-
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor.id)) {
-        visited.add(neighbor.id);
-        const nx = x + Math.cos(angle) * SPACING;
-        const ny = y + Math.sin(angle) * SPACING;
-        queue.push({node: neighbor, x: nx, y: ny});
-        angle += angleStep;
+  if (mode === 'horizontal') {
+    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
+    function doLayout(node: TreeNode | null, startY: number): number {
+      if (!node) return 0;
+      if (!node.father && !node.mother) {
+        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
+        node.x = node.generation * GEN_WIDTH;
+        node.y = startY + node.subtreeHeight / 2;
+        return node.subtreeHeight;
       }
+      const hF = doLayout(node.father, startY);
+      const hM = doLayout(node.mother, startY + hF);
+      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
+      node.x = node.generation * GEN_WIDTH;
+      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
+      else if (node.father) node.y = node.father.y;
+      else if (node.mother) node.y = node.mother.y;
+      else node.y = startY + node.subtreeHeight / 2;
+      return node.subtreeHeight;
     }
+    doLayout(root, 0);
+  } else if (mode === 'vertical') {
+    const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
+    function doLayoutV(node: TreeNode | null, startX: number): number {
+      if (!node) return 0;
+      if (!node.father && !node.mother) {
+        node.subtreeHeight = BOX_WIDTH + SPACING_Y; // Using subtreeHeight as a generic size
+        node.y = -(node.generation * GEN_HEIGHT);
+        node.x = startX + node.subtreeHeight / 2;
+        return node.subtreeHeight;
+      }
+      const wF = doLayoutV(node.father, startX);
+      const wM = doLayoutV(node.mother, startX + wF);
+      node.subtreeHeight = Math.max(BOX_WIDTH + SPACING_Y, wF + wM);
+      node.y = -(node.generation * GEN_HEIGHT);
+      if (node.father && node.mother) node.x = (node.father.x + node.mother.x) / 2;
+      else if (node.father) node.x = node.father.x;
+      else if (node.mother) node.x = node.mother.x;
+      else node.x = startX + node.subtreeHeight / 2;
+      return node.subtreeHeight;
+    }
+    doLayoutV(root, 0);
+  } else if (mode === 'butterfly') {
+    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
+    function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1): number {
+      if (!node) return 0;
+      if (!node.father && !node.mother) {
+        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
+        node.x = direction * (node.generation * GEN_WIDTH);
+        node.y = startY + node.subtreeHeight / 2;
+        return node.subtreeHeight;
+      }
+      const hF = doLayoutB(node.father, startY, direction);
+      const hM = doLayoutB(node.mother, startY + hF, direction);
+      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
+      node.x = direction * (node.generation * GEN_WIDTH);
+      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
+      else if (node.father) node.y = node.father.y;
+      else if (node.mother) node.y = node.mother.y;
+      else node.y = startY + node.subtreeHeight / 2;
+      return node.subtreeHeight;
+    }
+    const hF = doLayoutB(root.father, 0, -1);
+    const hM = doLayoutB(root.mother, 0, 1);
+    root.x = 0;
+    if (root.father && root.mother) root.y = (root.father.y + root.mother.y) / 2;
+    else if (root.father) root.y = root.father.y;
+    else if (root.mother) root.y = root.mother.y;
+    else root.y = 0;
+  } else if (mode === 'fan') {
+    const RADIUS_STEP = 200;
+    function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number) {
+      if (!node) return;
+      const radius = node.generation * RADIUS_STEP;
+      const angle = (angleStart + angleEnd) / 2;
+      node.x = Math.cos(angle) * radius;
+      node.y = -Math.sin(angle) * radius;
+      if (node.father) doLayoutFan(node.father, angleStart, angle);
+      if (node.mother) doLayoutFan(node.mother, angle, angleEnd);
+    }
+    root.x = 0;
+    root.y = 0;
+    if (root.father) doLayoutFan(root.father, Math.PI, Math.PI / 2);
+    if (root.mother) doLayoutFan(root.mother, Math.PI / 2, 0);
   }
 }

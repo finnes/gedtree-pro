@@ -241,7 +241,7 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
           target: target.id,
           type: 'smoothstep',
           animated: false,
-          style: { stroke: '#94a3b8', strokeWidth: 1.5 },
+          style: { stroke: '#475569', strokeWidth: 2 },
         });
         traverse(target);
       };
