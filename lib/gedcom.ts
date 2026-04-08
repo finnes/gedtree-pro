@@ -301,20 +301,62 @@ export function applyLayout(root: TreeNode, mode: string) {
   const queue = [root];
   const visited = new Set<string>();
   visited.add(root.id);
+
+  const occupied = new Set<string>();
+  const CELL_W = 200;
+  const CELL_H = 100;
+
+  function getCell(x: number, y: number) {
+    return `${Math.round(x / CELL_W)},${Math.round(y / CELL_H)}`;
+  }
+
+  // Mark initially positioned nodes
+  const allNodes = [root];
+  let qIdx = 0;
+  while (qIdx < allNodes.length) {
+    const n = allNodes[qIdx++];
+    if (n.x !== 0 || n.y !== 0 || n === root) {
+      occupied.add(getCell(n.x, n.y));
+    }
+    for (const neighbor of [...n.parents, ...n.spouses, ...n.children]) {
+      if (!allNodes.includes(neighbor)) {
+        allNodes.push(neighbor);
+      }
+    }
+  }
+
+  function findEmptyCell(startX: number, startY: number): { x: number, y: number } {
+    let radius = 0;
+    while (radius < 50) { // Search up to 50 cells away
+      for (let dx = -radius; dx <= radius; dx++) {
+        for (let dy = -radius; dy <= radius; dy++) {
+          if (Math.abs(dx) === radius || Math.abs(dy) === radius) {
+            const testX = startX + dx * CELL_W;
+            const testY = startY + dy * CELL_H;
+            if (!occupied.has(getCell(testX, testY))) {
+              return { x: testX, y: testY };
+            }
+          }
+        }
+      }
+      radius++;
+    }
+    return { x: startX, y: startY }; // Fallback
+  }
   
   while (queue.length > 0) {
     const node = queue.shift()!;
     const neighbors = [...node.parents, ...node.spouses, ...node.children];
     
-    let unpositionedCount = 0;
     for (const neighbor of neighbors) {
       if (!visited.has(neighbor.id)) {
         visited.add(neighbor.id);
         if (neighbor.x === 0 && neighbor.y === 0) {
-          // Position neighbor near node, spreading them out
-          unpositionedCount++;
-          neighbor.x = node.x + (unpositionedCount % 2 === 0 ? 1 : -1) * 100;
-          neighbor.y = node.y + Math.ceil(unpositionedCount / 2) * 80;
+          // Find nearest empty spot
+          const pos = findEmptyCell(node.x, node.y + CELL_H);
+          neighbor.x = pos.x;
+          neighbor.y = pos.y;
+          occupied.add(getCell(pos.x, pos.y));
         }
         queue.push(neighbor);
       }

@@ -229,6 +229,11 @@ export default function GedcomToPdfPage() {
                     <option value="A2">A2 (594 x 420 mm)</option>
                     <option value="A1">A1 (841 x 594 mm)</option>
                     <option value="A0">A0 (1189 x 841 mm)</option>
+                    <option value="2A0">2A0 (1682 x 1189 mm)</option>
+                    <option value="4A0">4A0 (2378 x 1682 mm)</option>
+                    <option value="POSTER_2M">Pôster (2m x 1m)</option>
+                    <option value="POSTER_3M">Pôster (3m x 1m)</option>
+                    <option value="POSTER_5M">Pôster (5m x 1m)</option>
                   </select>
                 </div>
 

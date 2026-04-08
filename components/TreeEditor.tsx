@@ -81,12 +81,20 @@ interface FlowContentProps {
   onEdgesChange: any;
   isFullscreen: boolean;
   setIsFullscreen: (val: boolean) => void;
+  layoutKey: number;
 }
 
-const FlowContent = ({ nodes, edges, setNodes, onNodesChange, onEdgesChange, isFullscreen, setIsFullscreen }: FlowContentProps) => {
+const FlowContent = ({ nodes, edges, setNodes, onNodesChange, onEdgesChange, isFullscreen, setIsFullscreen, layoutKey }: FlowContentProps) => {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const [isPanMode, setIsPanMode] = useState(true);
   const [snapToGrid, setSnapToGrid] = useState(true);
+
+  // Fit view when layout changes
+  useEffect(() => {
+    setTimeout(() => {
+      fitView({ duration: 800, padding: 0.1 });
+    }, 50);
+  }, [layoutKey, fitView]);
 
   // History for Undo/Redo
   const [past, setPast] = useState<Node[][]>([]);
@@ -260,6 +268,11 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
         'A2': { w: 594, h: 420 },
         'A1': { w: 841, h: 594 },
         'A0': { w: 1189, h: 841 },
+        '2A0': { w: 1682, h: 1189 },
+        '4A0': { w: 2378, h: 1682 },
+        'POSTER_2M': { w: 2000, h: 1000 },
+        'POSTER_3M': { w: 3000, h: 1000 },
+        'POSTER_5M': { w: 5000, h: 1000 },
     };
     const pSize = PAGE_SIZES[pageSize] || PAGE_SIZES['A3'];
     
@@ -267,20 +280,56 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
     newNodes.forEach(n => {
         if (n.position.x < minX) minX = n.position.x;
         if (n.position.y < minY) minY = n.position.y;
-        if (n.position.x > maxX) maxX = n.position.x;
-        if (n.position.y > maxY) maxY = n.position.y;
+        if (n.position.x + 160 > maxX) maxX = n.position.x + 160;
+        if (n.position.y + 50 > maxY) maxY = n.position.y + 50;
     });
     
+    // Add padding
+    minX -= 50;
+    minY -= 50;
+    maxX += 50;
+    maxY += 50;
+
+    const treeW = Math.max(maxX - minX, 100);
+    const treeH = Math.max(maxY - minY, 100);
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
+
+    let boxW = pSize.w * 2;
+    let boxH = pSize.h * 2;
+
+    if (exportFormat === 'A0_POSTER') {
+        const pageRatio = pSize.w / pSize.h;
+        const treeRatio = treeW / treeH;
+        
+        if (treeRatio > pageRatio) {
+            boxW = treeW;
+            boxH = treeW / pageRatio;
+        } else {
+            boxH = treeH;
+            boxW = treeH * pageRatio;
+        }
+    } else {
+        // Grid mode: calculate how many pages are needed
+        const effWidth = pSize.w * 2;
+        const effHeight = pSize.h * 2;
+        const cols = Math.max(1, Math.ceil(treeW / effWidth));
+        const rows = Math.max(1, Math.ceil(treeH / effHeight));
+        boxW = cols * effWidth;
+        boxH = rows * effHeight;
+    }
 
     newNodes.push({
         id: 'boundary',
         type: 'boundary',
-        position: { x: centerX - (pSize.w * 2) / 2, y: centerY - (pSize.h * 2) / 2 },
-        data: { width: pSize.w * 2, height: pSize.h * 2, format: exportFormat, pageSize: pageSize },
+        position: { x: centerX - boxW / 2, y: centerY - boxH / 2 },
+        data: { width: boxW, height: boxH, format: exportFormat, pageSize: pageSize },
         zIndex: -1,
         selectable: false,
+        draggable: false,
+        focusable: false,
+        deletable: false,
+        style: { pointerEvents: 'none' },
     });
 
     setNodes(newNodes);
@@ -305,6 +354,7 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
           onEdgesChange={onEdgesChange}
           isFullscreen={isFullscreen}
           setIsFullscreen={setIsFullscreen}
+          layoutKey={layoutKey}
         />
       </ReactFlowProvider>
       

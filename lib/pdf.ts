@@ -32,6 +32,11 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
     'A2': { w: 594, h: 420 },
     'A1': { w: 841, h: 594 },
     'A0': { w: 1189, h: 841 },
+    '2A0': { w: 1682, h: 1189 },
+    '4A0': { w: 2378, h: 1682 },
+    'POSTER_2M': { w: 2000, h: 1000 },
+    'POSTER_3M': { w: 3000, h: 1000 },
+    'POSTER_5M': { w: 5000, h: 1000 },
   };
   
   const PAGE_WIDTH = PAGE_SIZES[pageSize]?.w || 420;
