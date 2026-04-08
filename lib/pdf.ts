@@ -4,12 +4,15 @@ import { Node, Edge } from '@xyflow/react';
 export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_GRID' | 'A0_POSTER', pageSize: string = 'A3') {
   if (nodes.length === 0) return;
 
-  // Find bounding box of all nodes
+  // Find bounding box of all nodes (excluding boundary)
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   const BOX_WIDTH = 160;
   const BOX_HEIGHT = 50; // Approximate height of the custom node
 
-  nodes.forEach(n => {
+  const treeNodes = nodes.filter(n => n.type !== 'boundary');
+  if (treeNodes.length === 0) return;
+
+  treeNodes.forEach(n => {
     if (n.position.x < minX) minX = n.position.x;
     if (n.position.y < minY) minY = n.position.y;
     if (n.position.x > maxX) maxX = n.position.x;
@@ -152,25 +155,73 @@ function drawNodesAndEdges(
   const BOX_HEIGHT = 50 * scale;
 
   // Draw Edges
-  doc.setDrawColor(71, 85, 105); // slate-600
-  doc.setLineWidth(2 * scale);
-  
   edges.forEach(edge => {
     const sourceNode = nodes.find(n => n.id === edge.source);
     const targetNode = nodes.find(n => n.id === edge.target);
     
     if (sourceNode && targetNode) {
-      const startX = (sourceNode.position.x + 160 / 2 - offsetX) * scale;
-      const startY = (sourceNode.position.y + 50 / 2 - offsetY) * scale;
-      const endX = (targetNode.position.x + 160 / 2 - offsetX) * scale;
-      const endY = (targetNode.position.y + 50 / 2 - offsetY) * scale;
+      let startX = (sourceNode.position.x + 160 / 2 - offsetX) * scale;
+      let startY = (sourceNode.position.y + 50 / 2 - offsetY) * scale;
+      let endX = (targetNode.position.x + 160 / 2 - offsetX) * scale;
+      let endY = (targetNode.position.y + 50 / 2 - offsetY) * scale;
 
-      doc.line(startX, startY, endX, endY);
+      // Adjust start/end points based on handles if available
+      if (edge.sourceHandle === 'source-right') startX = (sourceNode.position.x + 160 - offsetX) * scale;
+      if (edge.sourceHandle === 'source-left') startX = (sourceNode.position.x - offsetX) * scale;
+      if (edge.sourceHandle === 'source-bottom') startY = (sourceNode.position.y + 50 - offsetY) * scale;
+      if (edge.sourceHandle === 'source-top') startY = (sourceNode.position.y - offsetY) * scale;
+
+      if (edge.targetHandle === 'target-right') endX = (targetNode.position.x + 160 - offsetX) * scale;
+      if (edge.targetHandle === 'target-left') endX = (targetNode.position.x - offsetX) * scale;
+      if (edge.targetHandle === 'target-bottom') endY = (targetNode.position.y + 50 - offsetY) * scale;
+      if (edge.targetHandle === 'target-top') endY = (targetNode.position.y - offsetY) * scale;
+
+      const style = edge.style || {};
+      const strokeColor = style.stroke as string || '#94a3b8';
+      const strokeWidth = (style.strokeWidth as number || 1) * scale;
+      const isDashed = style.strokeDasharray === '5,5';
+
+      // Convert hex to rgb for jsPDF
+      const r = parseInt(strokeColor.slice(1, 3), 16);
+      const g = parseInt(strokeColor.slice(3, 5), 16);
+      const b = parseInt(strokeColor.slice(5, 7), 16);
+
+      doc.setDrawColor(r, g, b);
+      doc.setLineWidth(strokeWidth);
+      
+      if (isDashed) {
+        doc.setLineDashPattern([5 * scale, 5 * scale], 0);
+      } else {
+        doc.setLineDashPattern([], 0);
+      }
+
+      if (
+        (edge.sourceHandle === 'source-bottom' && edge.targetHandle === 'target-top') ||
+        (edge.sourceHandle === 'source-top' && edge.targetHandle === 'target-bottom')
+      ) {
+        const midY = (startY + endY) / 2;
+        doc.line(startX, startY, startX, midY);
+        doc.line(startX, midY, endX, midY);
+        doc.line(endX, midY, endX, endY);
+      } else if (
+        (edge.sourceHandle === 'source-right' && edge.targetHandle === 'target-left') ||
+        (edge.sourceHandle === 'source-left' && edge.targetHandle === 'target-right')
+      ) {
+        const midX = (startX + endX) / 2;
+        doc.line(startX, startY, midX, startY);
+        doc.line(midX, startY, midX, endY);
+        doc.line(midX, endY, endX, endY);
+      } else {
+        doc.line(startX, startY, endX, endY);
+      }
     }
   });
 
+  // Reset line dash for nodes
+  doc.setLineDashPattern([], 0);
+
   // Draw Nodes
-  nodes.forEach(node => {
+  nodes.filter(n => n.type !== 'boundary').forEach(node => {
     const x = (node.position.x - offsetX) * scale;
     const y = (node.position.y - offsetY) * scale;
 

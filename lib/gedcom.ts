@@ -325,9 +325,29 @@ export function applyLayout(root: TreeNode, mode: string) {
     }
   }
 
-  function findEmptyCell(startX: number, startY: number): { x: number, y: number } {
+  function findEmptyCell(startX: number, startY: number, preferHorizontal: boolean): { x: number, y: number } {
     let radius = 0;
     while (radius < 50) { // Search up to 50 cells away
+      // Check preferred direction first
+      if (preferHorizontal) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (Math.abs(dx) === radius) {
+            const testX = startX + dx * CELL_W;
+            const testY = startY;
+            if (!occupied.has(getCell(testX, testY))) return { x: testX, y: testY };
+          }
+        }
+      } else {
+        for (let dy = -radius; dy <= radius; dy++) {
+          if (Math.abs(dy) === radius) {
+            const testX = startX;
+            const testY = startY + dy * CELL_H;
+            if (!occupied.has(getCell(testX, testY))) return { x: testX, y: testY };
+          }
+        }
+      }
+
+      // Then check all other cells in radius
       for (let dx = -radius; dx <= radius; dx++) {
         for (let dy = -radius; dy <= radius; dy++) {
           if (Math.abs(dx) === radius || Math.abs(dy) === radius) {
@@ -346,19 +366,46 @@ export function applyLayout(root: TreeNode, mode: string) {
   
   while (queue.length > 0) {
     const node = queue.shift()!;
-    const neighbors = [...node.parents, ...node.spouses, ...node.children];
     
-    for (const neighbor of neighbors) {
-      if (!visited.has(neighbor.id)) {
-        visited.add(neighbor.id);
-        if (neighbor.x === 0 && neighbor.y === 0) {
-          // Find nearest empty spot
-          const pos = findEmptyCell(node.x, node.y + CELL_H);
-          neighbor.x = pos.x;
-          neighbor.y = pos.y;
+    // Process spouses first (prefer horizontal)
+    for (const spouse of node.spouses) {
+      if (!visited.has(spouse.id)) {
+        visited.add(spouse.id);
+        if (spouse.x === 0 && spouse.y === 0) {
+          const pos = findEmptyCell(node.x, node.y, true);
+          spouse.x = pos.x;
+          spouse.y = pos.y;
           occupied.add(getCell(pos.x, pos.y));
         }
-        queue.push(neighbor);
+        queue.push(spouse);
+      }
+    }
+
+    // Process children (prefer vertical down)
+    for (const child of node.children) {
+      if (!visited.has(child.id)) {
+        visited.add(child.id);
+        if (child.x === 0 && child.y === 0) {
+          const pos = findEmptyCell(node.x, node.y + CELL_H, false);
+          child.x = pos.x;
+          child.y = pos.y;
+          occupied.add(getCell(pos.x, pos.y));
+        }
+        queue.push(child);
+      }
+    }
+
+    // Process parents (prefer vertical up)
+    for (const parent of node.parents) {
+      if (!visited.has(parent.id)) {
+        visited.add(parent.id);
+        if (parent.x === 0 && parent.y === 0) {
+          const pos = findEmptyCell(node.x, node.y - CELL_H, false);
+          parent.x = pos.x;
+          parent.y = pos.y;
+          occupied.add(getCell(pos.x, pos.y));
+        }
+        queue.push(parent);
       }
     }
   }

@@ -243,13 +243,72 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
 
       // Add Edges
       const addEdge = (target: TreeNode, type: string) => {
+        let strokeColor = '#94a3b8'; // default slate-400
+        let strokeWidth = 0.5;
+        let strokeDasharray = 'none';
+
+        if (type === 'parent') {
+          strokeColor = '#3b82f6'; // blue-500
+          strokeWidth = 1.0;
+        } else if (type === 'spouse') {
+          strokeColor = '#ec4899'; // pink-500
+          strokeWidth = 1.0;
+          strokeDasharray = '5,5'; // dashed for spouses
+        } else if (type === 'child') {
+          strokeColor = '#10b981'; // emerald-500
+          strokeWidth = 1.0;
+        }
+
+        let sourceHandle = 'source-bottom';
+        let targetHandle = 'target-top';
+
+        if (layoutMode === 'horizontal') {
+          if (type === 'parent') {
+            sourceHandle = 'source-left';
+            targetHandle = 'target-right';
+          } else if (type === 'child') {
+            sourceHandle = 'source-right';
+            targetHandle = 'target-left';
+          } else if (type === 'spouse') {
+            sourceHandle = 'source-bottom';
+            targetHandle = 'target-top';
+          }
+        } else if (layoutMode === 'vertical') {
+          if (type === 'parent') {
+            sourceHandle = 'source-top';
+            targetHandle = 'target-bottom';
+          } else if (type === 'child') {
+            sourceHandle = 'source-bottom';
+            targetHandle = 'target-top';
+          } else if (type === 'spouse') {
+            // Determine left/right based on relative X position
+            if (target.x > node.x) {
+              sourceHandle = 'source-right';
+              targetHandle = 'target-left';
+            } else {
+              sourceHandle = 'source-left';
+              targetHandle = 'target-right';
+            }
+          }
+        } else if (layoutMode === 'butterfly') {
+          if (node.x < 0) {
+            sourceHandle = 'source-left';
+            targetHandle = 'target-right';
+          } else {
+            sourceHandle = 'source-right';
+            targetHandle = 'target-left';
+          }
+        }
+
         newEdges.push({
           id: `e-${node.id}-${target.id}-${type}`,
           source: node.id,
           target: target.id,
+          sourceHandle,
+          targetHandle,
           type: 'smoothstep',
           animated: false,
-          style: { stroke: '#475569', strokeWidth: 2 },
+          style: { stroke: strokeColor, strokeWidth, strokeDasharray },
         });
         traverse(target);
       };
