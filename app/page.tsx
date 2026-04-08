@@ -277,7 +277,7 @@ export default function GedcomToPdfPage() {
                     <p className="text-slate-500 font-medium text-sm">Processando arquivo...</p>
                   </div>
                 ) : parsedData && treeNode ? (
-                  <TreeEditor rootNode={treeNode} layoutMode={layoutMode} layoutKey={layoutKey} onNodesChangeCallback={handleNodesChange} />
+                  <TreeEditor rootNode={treeNode} layoutMode={layoutMode} layoutKey={layoutKey} exportFormat={exportFormat} pageSize={pageSize} onNodesChangeCallback={handleNodesChange} />
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-slate-300">
                     <FileText size={48} strokeWidth={1} />

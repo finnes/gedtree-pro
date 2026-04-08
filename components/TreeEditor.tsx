@@ -17,12 +17,25 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { TreeNode } from '@/lib/gedcom';
-import { MousePointer2, Hand, ZoomIn, ZoomOut, Maximize, Minimize, Focus, Undo2, Redo2, Grid } from 'lucide-react';
+import { MousePointer2, Hand, ZoomIn, ZoomOut, Maximize, Minimize, Focus, Undo2, Redo2, Grid, X } from 'lucide-react';
 
 // Custom Node Component for a Person
-const PersonNode = ({ data }: { data: any }) => {
+const PersonNode = ({ id, data }: { id: string, data: any }) => {
+  const { setNodes } = useReactFlow();
+  
+  const onDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNodes((nodes) => nodes.filter((node) => node.id !== id));
+  };
+
   return (
     <div className="bg-white border border-slate-300 rounded-lg shadow-sm w-[160px] p-3 flex flex-col items-center justify-center relative group hover:border-indigo-400 hover:shadow-md transition-all">
+      <button 
+        onClick={onDelete}
+        className="absolute -top-2 -right-2 bg-red-100 text-red-600 rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+      >
+        <X size={12} />
+      </button>
       <Handle type="target" position={Position.Left} id="target-left" className="w-1 h-1 opacity-0" />
       <Handle type="target" position={Position.Right} id="target-right" className="w-1 h-1 opacity-0" />
       <Handle type="target" position={Position.Top} id="target-top" className="w-1 h-1 opacity-0" />
@@ -45,8 +58,19 @@ const PersonNode = ({ data }: { data: any }) => {
   );
 };
 
+const BoundaryNode = ({ data }: { data: any }) => {
+  return (
+    <div className="border-2 border-dashed border-slate-400 pointer-events-none" style={{ width: data.width, height: data.height }}>
+      <div className="p-2 text-slate-400 text-xs font-mono">
+        {data.format === 'A3_GRID' ? `Grade de Páginas (${data.pageSize})` : `Pôster Gigante (${data.pageSize})`}
+      </div>
+    </div>
+  );
+};
+
 const nodeTypes = {
   person: PersonNode,
+  boundary: BoundaryNode,
 };
 
 interface FlowContentProps {
@@ -175,10 +199,12 @@ interface TreeEditorProps {
   rootNode: TreeNode | null;
   layoutMode: string;
   layoutKey: number;
+  exportFormat: 'A3_GRID' | 'A0_POSTER';
+  pageSize: string;
   onNodesChangeCallback?: (nodes: Node[], edges: Edge[]) => void;
 }
 
-export default function TreeEditor({ rootNode, layoutMode, layoutKey, onNodesChangeCallback }: TreeEditorProps) {
+export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportFormat, pageSize, onNodesChangeCallback }: TreeEditorProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -257,9 +283,40 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, onNodesCha
     };
 
     traverse(rootNode);
+
+    // Add Boundary Node
+    const PAGE_SIZES: Record<string, {w: number, h: number}> = {
+        'A4': { w: 297, h: 210 },
+        'A3': { w: 420, h: 297 },
+        'A2': { w: 594, h: 420 },
+        'A1': { w: 841, h: 594 },
+        'A0': { w: 1189, h: 841 },
+    };
+    const pSize = PAGE_SIZES[pageSize] || PAGE_SIZES['A3'];
+    
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    newNodes.forEach(n => {
+        if (n.position.x < minX) minX = n.position.x;
+        if (n.position.y < minY) minY = n.position.y;
+        if (n.position.x > maxX) maxX = n.position.x;
+        if (n.position.y > maxY) maxY = n.position.y;
+    });
+    
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    newNodes.push({
+        id: 'boundary',
+        type: 'boundary',
+        position: { x: centerX - (pSize.w * 2) / 2, y: centerY - (pSize.h * 2) / 2 },
+        data: { width: pSize.w * 2, height: pSize.h * 2, format: exportFormat, pageSize: pageSize },
+        zIndex: -1,
+        selectable: false,
+    });
+
     setNodes(newNodes);
     setEdges(newEdges);
-  }, [rootNode, layoutMode, layoutKey, setNodes, setEdges]);
+  }, [rootNode, layoutMode, layoutKey, exportFormat, pageSize, setNodes, setEdges]);
 
   // Notify parent component when nodes/edges change (for PDF export)
   useEffect(() => {

@@ -143,22 +143,22 @@ function drawNodesAndEdges(
   col: number,
   row: number
 ) {
-  const BOX_WIDTH = 160;
-  const BOX_HEIGHT = 50;
+  const BOX_WIDTH = 160 * scale;
+  const BOX_HEIGHT = 50 * scale;
 
   // Draw Edges
   doc.setDrawColor(148, 163, 184); // slate-400
-  doc.setLineWidth(1.5);
+  doc.setLineWidth(1.5 * scale);
   
   edges.forEach(edge => {
     const sourceNode = nodes.find(n => n.id === edge.source);
     const targetNode = nodes.find(n => n.id === edge.target);
     
     if (sourceNode && targetNode) {
-      let startX = sourceNode.position.x + BOX_WIDTH / 2 - offsetX;
-      let startY = sourceNode.position.y + BOX_HEIGHT / 2 - offsetY;
-      let endX = targetNode.position.x + BOX_WIDTH / 2 - offsetX;
-      let endY = targetNode.position.y + BOX_HEIGHT / 2 - offsetY;
+      let startX = (sourceNode.position.x + 160 / 2 - offsetX) * scale;
+      let startY = (sourceNode.position.y + 50 / 2 - offsetY) * scale;
+      let endX = (targetNode.position.x + 160 / 2 - offsetX) * scale;
+      let endY = (targetNode.position.y + 50 / 2 - offsetY) * scale;
 
       if (edge.sourceHandle === 'source-right') startX += BOX_WIDTH / 2;
       if (edge.sourceHandle === 'source-left') startX -= BOX_WIDTH / 2;
@@ -186,34 +186,34 @@ function drawNodesAndEdges(
 
   // Draw Nodes
   nodes.forEach(node => {
-    const x = node.position.x - offsetX;
-    const y = node.position.y - offsetY;
+    const x = (node.position.x - offsetX) * scale;
+    const y = (node.position.y - offsetY) * scale;
 
     // Shadow
     doc.setFillColor(226, 232, 240); // slate-200
-    doc.roundedRect(x + 2, y + 2, BOX_WIDTH, BOX_HEIGHT, 4, 4, 'F');
+    doc.roundedRect(x + 2 * scale, y + 2 * scale, BOX_WIDTH, BOX_HEIGHT, 4 * scale, 4 * scale, 'F');
     
     // Box
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor(203, 213, 225); // slate-300
-    doc.setLineWidth(1);
-    doc.roundedRect(x, y, BOX_WIDTH, BOX_HEIGHT, 4, 4, 'FD');
+    doc.setLineWidth(1 * scale);
+    doc.roundedRect(x, y, BOX_WIDTH, BOX_HEIGHT, 4 * scale, 4 * scale, 'FD');
 
     // Name
     doc.setTextColor(30, 41, 59); // slate-800
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    const nameStr = node.data.name as string;
+    doc.setFontSize(12 * scale);
+    const nameStr = (node.data?.name as string) || 'Sem nome';
     const shortName = nameStr.length > 30 ? nameStr.substring(0, 30) + '...' : nameStr;
     
     // Center text manually
     const textWidth = doc.getTextWidth(shortName);
-    doc.text(shortName, x + (BOX_WIDTH - textWidth) / 2, y + 20);
+    doc.text(shortName, x + (BOX_WIDTH - textWidth) / 2, y + 20 * scale);
 
     // Dates
     doc.setTextColor(100, 116, 139); // slate-500
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
+    doc.setFontSize(10 * scale);
     
     const birth = node.data.birth as string;
     const death = node.data.death as string;
@@ -224,6 +224,6 @@ function drawNodesAndEdges(
     if (!dateStr) dateStr = 'Datas desconhecidas';
     
     const dateWidth = doc.getTextWidth(dateStr);
-    doc.text(dateStr, x + (BOX_WIDTH - dateWidth) / 2, y + 35);
+    doc.text(dateStr, x + (BOX_WIDTH - dateWidth) / 2, y + 35 * scale);
   });
 }
