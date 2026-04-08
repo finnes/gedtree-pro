@@ -119,6 +119,7 @@ export interface TreeNode {
   father: TreeNode | null;
   mother: TreeNode | null;
   subtreeHeight: number;
+  subtreeWidth?: number;
   x: number;
   y: number;
 }
@@ -190,6 +191,99 @@ export function getMaxGen(node: TreeNode | null): number {
   );
 }
 
+export function applyLayout(root: TreeNode, mode: string) {
+  const BOX_WIDTH = 160;
+  const BOX_HEIGHT = 50;
+  const SPACING_X = 40;
+  const SPACING_Y = 20;
+
+  if (mode === 'horizontal') {
+    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
+    function doLayout(node: TreeNode | null, startY: number): number {
+      if (!node) return 0;
+      if (!node.father && !node.mother) {
+        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
+        node.x = node.generation * GEN_WIDTH;
+        node.y = startY + node.subtreeHeight / 2;
+        return node.subtreeHeight;
+      }
+      const hF = doLayout(node.father, startY);
+      const hM = doLayout(node.mother, startY + hF);
+      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
+      node.x = node.generation * GEN_WIDTH;
+      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
+      else if (node.father) node.y = node.father.y;
+      else if (node.mother) node.y = node.mother.y;
+      else node.y = startY + node.subtreeHeight / 2;
+      return node.subtreeHeight;
+    }
+    doLayout(root, 0);
+  } else if (mode === 'vertical') {
+    const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
+    function doLayoutV(node: TreeNode | null, startX: number): number {
+      if (!node) return 0;
+      if (!node.father && !node.mother) {
+        node.subtreeWidth = BOX_WIDTH + SPACING_Y;
+        node.y = -(node.generation * GEN_HEIGHT);
+        node.x = startX + node.subtreeWidth / 2;
+        return node.subtreeWidth;
+      }
+      const wF = doLayoutV(node.father, startX);
+      const wM = doLayoutV(node.mother, startX + wF);
+      node.subtreeWidth = Math.max(BOX_WIDTH + SPACING_Y, wF + wM);
+      node.y = -(node.generation * GEN_HEIGHT);
+      if (node.father && node.mother) node.x = (node.father.x + node.mother.x) / 2;
+      else if (node.father) node.x = node.father.x;
+      else if (node.mother) node.x = node.mother.x;
+      else node.x = startX + node.subtreeWidth / 2;
+      return node.subtreeWidth;
+    }
+    doLayoutV(root, 0);
+  } else if (mode === 'butterfly') {
+    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
+    function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1): number {
+      if (!node) return 0;
+      if (!node.father && !node.mother) {
+        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
+        node.x = direction * (node.generation * GEN_WIDTH);
+        node.y = startY + node.subtreeHeight / 2;
+        return node.subtreeHeight;
+      }
+      const hF = doLayoutB(node.father, startY, direction);
+      const hM = doLayoutB(node.mother, startY + hF, direction);
+      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
+      node.x = direction * (node.generation * GEN_WIDTH);
+      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
+      else if (node.father) node.y = node.father.y;
+      else if (node.mother) node.y = node.mother.y;
+      else node.y = startY + node.subtreeHeight / 2;
+      return node.subtreeHeight;
+    }
+    const hF = doLayoutB(root.father, 0, -1);
+    const hM = doLayoutB(root.mother, 0, 1);
+    root.x = 0;
+    if (root.father && root.mother) root.y = (root.father.y + root.mother.y) / 2;
+    else if (root.father) root.y = root.father.y;
+    else if (root.mother) root.y = root.mother.y;
+    else root.y = 0;
+  } else if (mode === 'fan') {
+    const RADIUS_STEP = 200;
+    function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number) {
+      if (!node) return;
+      const radius = node.generation * RADIUS_STEP;
+      const angle = (angleStart + angleEnd) / 2;
+      node.x = Math.cos(angle) * radius;
+      node.y = -Math.sin(angle) * radius;
+      if (node.father) doLayoutFan(node.father, angleStart, angle);
+      if (node.mother) doLayoutFan(node.mother, angle, angleEnd);
+    }
+    root.x = 0;
+    root.y = 0;
+    if (root.father) doLayoutFan(root.father, Math.PI, Math.PI / 2);
+    if (root.mother) doLayoutFan(root.mother, Math.PI / 2, 0);
+  }
+}
+
 export function layoutTree(
   node: TreeNode | null,
   startY: number,
@@ -211,7 +305,17 @@ export function layoutTree(
   
   node.subtreeHeight = Math.max(boxHeight + boxSpacing, hF + hM);
   node.x = node.generation * genWidth;
-  node.y = startY + node.subtreeHeight / 2;
+  
+  // Center the node vertically between its parents
+  if (node.father && node.mother) {
+    node.y = (node.father.y + node.mother.y) / 2;
+  } else if (node.father) {
+    node.y = node.father.y;
+  } else if (node.mother) {
+    node.y = node.mother.y;
+  } else {
+    node.y = startY + node.subtreeHeight / 2;
+  }
   
   return node.subtreeHeight;
 }
