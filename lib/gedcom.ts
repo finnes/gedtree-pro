@@ -124,7 +124,8 @@ export interface TreeNode {
 export function buildTree(
   individuals: Record<string, Individual>,
   families: Record<string, Family>,
-  rootId: string
+  rootId: string,
+  maxGen: number = 15
 ): TreeNode | null {
   const nodes: Record<string, TreeNode> = {};
   const visited = new Set<string>();
@@ -163,19 +164,21 @@ export function buildTree(
 
     for (const f of Object.values(families)) {
       if (f.chil.includes(currentId)) {
-        if (f.husb) {
-          const father = getOrCreateNode(f.husb, gen + 1);
-          if (!node.parents.includes(father)) node.parents.push(father);
-          if (!father.children.includes(node)) father.children.push(node);
-          node.father = father;
-          if (!visited.has(f.husb)) { visited.add(f.husb); queue.push({id: f.husb, gen: gen + 1}); }
-        }
-        if (f.wife) {
-          const mother = getOrCreateNode(f.wife, gen + 1);
-          if (!node.parents.includes(mother)) node.parents.push(mother);
-          if (!mother.children.includes(node)) mother.children.push(node);
-          node.mother = mother;
-          if (!visited.has(f.wife)) { visited.add(f.wife); queue.push({id: f.wife, gen: gen + 1}); }
+        if (gen < maxGen) {
+          if (f.husb) {
+            const father = getOrCreateNode(f.husb, gen + 1);
+            if (!node.parents.includes(father)) node.parents.push(father);
+            if (!father.children.includes(node)) father.children.push(node);
+            node.father = father;
+            if (!visited.has(f.husb)) { visited.add(f.husb); queue.push({id: f.husb, gen: gen + 1}); }
+          }
+          if (f.wife) {
+            const mother = getOrCreateNode(f.wife, gen + 1);
+            if (!node.parents.includes(mother)) node.parents.push(mother);
+            if (!mother.children.includes(node)) mother.children.push(node);
+            node.mother = mother;
+            if (!visited.has(f.wife)) { visited.add(f.wife); queue.push({id: f.wife, gen: gen + 1}); }
+          }
         }
       }
       if (f.husb === currentId || f.wife === currentId) {
@@ -186,11 +189,13 @@ export function buildTree(
           if (!spouse.spouses.includes(node)) spouse.spouses.push(node);
           if (!visited.has(spouseId)) { visited.add(spouseId); queue.push({id: spouseId, gen}); }
         }
-        for (const childId of f.chil) {
-          const child = getOrCreateNode(childId, gen - 1);
-          if (!node.children.includes(child)) node.children.push(child);
-          if (!child.parents.includes(node)) child.parents.push(node);
-          if (!visited.has(childId)) { visited.add(childId); queue.push({id: childId, gen: gen - 1}); }
+        if (gen > -maxGen) {
+          for (const childId of f.chil) {
+            const child = getOrCreateNode(childId, gen - 1);
+            if (!node.children.includes(child)) node.children.push(child);
+            if (!child.parents.includes(node)) child.parents.push(node);
+            if (!visited.has(childId)) { visited.add(childId); queue.push({id: childId, gen: gen - 1}); }
+          }
         }
       }
     }
@@ -270,10 +275,7 @@ export function applyLayout(root: TreeNode, mode: string) {
     const hF = doLayoutB(root.father, 0, -1);
     const hM = doLayoutB(root.mother, 0, 1);
     root.x = 0;
-    if (root.father && root.mother) root.y = (root.father.y + root.mother.y) / 2;
-    else if (root.father) root.y = root.father.y;
-    else if (root.mother) root.y = root.mother.y;
-    else root.y = 0;
+    root.y = Math.max(hF, hM) / 2;
   } else if (mode === 'fan') {
     const RADIUS_STEP = 200;
     function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number) {
@@ -282,12 +284,40 @@ export function applyLayout(root: TreeNode, mode: string) {
       const angle = (angleStart + angleEnd) / 2;
       node.x = Math.cos(angle) * radius;
       node.y = -Math.sin(angle) * radius;
-      if (node.father) doLayoutFan(node.father, angleStart, angle);
-      if (node.mother) doLayoutFan(node.mother, angle, angleEnd);
+      const angleStep = (angleEnd - angleStart) / (node.parents.length || 1);
+      for (let i = 0; i < node.parents.length; i++) {
+        doLayoutFan(node.parents[i], angleStart + i * angleStep, angleStart + (i + 1) * angleStep);
+      }
     }
     root.x = 0;
     root.y = 0;
-    if (root.father) doLayoutFan(root.father, Math.PI, Math.PI / 2);
-    if (root.mother) doLayoutFan(root.mother, Math.PI / 2, 0);
+    const angleStep = Math.PI / (root.parents.length || 1);
+    for (let i = 0; i < root.parents.length; i++) {
+      doLayoutFan(root.parents[i], Math.PI - (i + 1) * angleStep, Math.PI - i * angleStep);
+    }
+  }
+
+  // Post-processing to position unpositioned nodes
+  const queue = [root];
+  const visited = new Set<string>();
+  visited.add(root.id);
+  
+  while (queue.length > 0) {
+    const node = queue.shift()!;
+    const neighbors = [...node.parents, ...node.spouses, ...node.children];
+    
+    let unpositionedCount = 0;
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor.id)) {
+        visited.add(neighbor.id);
+        if (neighbor.x === 0 && neighbor.y === 0) {
+          // Position neighbor near node, spreading them out
+          unpositionedCount++;
+          neighbor.x = node.x + (unpositionedCount % 2 === 0 ? 1 : -1) * 100;
+          neighbor.y = node.y + Math.ceil(unpositionedCount / 2) * 80;
+        }
+        queue.push(neighbor);
+      }
+    }
   }
 }

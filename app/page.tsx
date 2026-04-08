@@ -16,6 +16,7 @@ export default function GedcomToPdfPage() {
   const [exportFormat, setExportFormat] = useState<'A3_GRID' | 'A0_POSTER'>('A3_GRID');
   const [layoutMode, setLayoutMode] = useState<string>('horizontal');
   const [pageSize, setPageSize] = useState<string>('A3');
+  const [maxGen, setMaxGen] = useState<number>(5);
   const [layoutKey, setLayoutKey] = useState<number>(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,12 +66,12 @@ export default function GedcomToPdfPage() {
     // Use layoutKey to force recalculation when Reorganize is clicked
     const _forceRecalc = layoutKey;
     if (!parsedData || !rootId) return null;
-    const root = buildTree(parsedData.individuals, parsedData.families, rootId);
+    const root = buildTree(parsedData.individuals, parsedData.families, rootId, maxGen);
     if (root) {
       applyLayout(root, layoutMode);
     }
     return root;
-  }, [parsedData, rootId, layoutMode, layoutKey]);
+  }, [parsedData, rootId, layoutMode, layoutKey, maxGen]);
 
   const handleNodesChange = useCallback((nodes: Node[], edges: Edge[]) => {
     setCurrentNodes(nodes);
@@ -228,6 +229,24 @@ export default function GedcomToPdfPage() {
                     <option value="A2">A2 (594 x 420 mm)</option>
                     <option value="A1">A1 (841 x 594 mm)</option>
                     <option value="A0">A0 (1189 x 841 mm)</option>
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-bold text-slate-700">Gerações (Limite)</label>
+                  <select 
+                    value={maxGen}
+                    onChange={(e) => setMaxGen(Number(e.target.value))}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-900 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  >
+                    <option value={2}>2 Gerações</option>
+                    <option value={3}>3 Gerações</option>
+                    <option value={4}>4 Gerações</option>
+                    <option value={5}>5 Gerações</option>
+                    <option value={10}>10 Gerações</option>
+                    <option value={15}>15 Gerações</option>
+                    <option value={20}>20 Gerações</option>
+                    <option value={99}>Todas</option>
                   </select>
                 </div>
 
