@@ -221,23 +221,6 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
     const newEdges: Edge[] = [];
     const visited = new Set<string>();
 
-    const getHandles = (sourceNode: TreeNode, targetNode: TreeNode) => {
-      if (layoutMode === 'vertical') {
-        return { sourceHandle: 'source-top', targetHandle: 'target-bottom' };
-      }
-      if (layoutMode === 'fan') {
-        return { sourceHandle: 'source-top', targetHandle: 'target-bottom' };
-      }
-      if (layoutMode === 'butterfly') {
-        if (targetNode.x < sourceNode.x) {
-          return { sourceHandle: 'source-left', targetHandle: 'target-right' };
-        } else if (targetNode.x > sourceNode.x) {
-          return { sourceHandle: 'source-right', targetHandle: 'target-left' };
-        }
-      }
-      return { sourceHandle: 'source-right', targetHandle: 'target-left' };
-    };
-
     const traverse = (node: TreeNode) => {
       if (visited.has(node.id)) return;
       visited.add(node.id);
@@ -250,36 +233,22 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
         data: { name: node.name, birth: node.birth, death: node.death },
       });
 
-      // Add Edges to Parents
-      if (node.father) {
-        const handles = getHandles(node, node.father);
+      // Add Edges
+      const addEdge = (target: TreeNode, type: string) => {
         newEdges.push({
-          id: `e-${node.id}-${node.father.id}`,
+          id: `e-${node.id}-${target.id}-${type}`,
           source: node.id,
-          target: node.father.id,
-          sourceHandle: handles.sourceHandle,
-          targetHandle: handles.targetHandle,
+          target: target.id,
           type: 'smoothstep',
           animated: false,
           style: { stroke: '#94a3b8', strokeWidth: 1.5 },
         });
-        traverse(node.father);
-      }
+        traverse(target);
+      };
 
-      if (node.mother) {
-        const handles = getHandles(node, node.mother);
-        newEdges.push({
-          id: `e-${node.id}-${node.mother.id}`,
-          source: node.id,
-          target: node.mother.id,
-          sourceHandle: handles.sourceHandle,
-          targetHandle: handles.targetHandle,
-          type: 'smoothstep',
-          animated: false,
-          style: { stroke: '#94a3b8', strokeWidth: 1.5 },
-        });
-        traverse(node.mother);
-      }
+      node.parents.forEach(p => addEdge(p, 'parent'));
+      node.spouses.forEach(s => addEdge(s, 'spouse'));
+      node.children.forEach(c => addEdge(c, 'child'));
     };
 
     traverse(rootNode);

@@ -92,10 +92,10 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
           api.rect(0, 0, effWidth, effHeight);
           api.clip();
           
-          // Apply scaling and translation to center the bounding box
-          api.setCurrentTransformationMatrix(api.Matrix(scale, 0, 0, scale, tx - (minX * scale), ty - (minY * scale)));
+          // Apply translation to center the bounding box
+          api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, tx, ty));
           
-          drawNodesAndEdges(doc, nodes, edges, 0, 0, 1, effWidth, effHeight, col, r);
+          drawNodesAndEdges(doc, nodes, edges, minX, minY, scale, effWidth, effHeight, col, r);
           
           api.restoreGraphicsState();
         });
@@ -155,32 +155,12 @@ function drawNodesAndEdges(
     const targetNode = nodes.find(n => n.id === edge.target);
     
     if (sourceNode && targetNode) {
-      let startX = (sourceNode.position.x + 160 / 2 - offsetX) * scale;
-      let startY = (sourceNode.position.y + 50 / 2 - offsetY) * scale;
-      let endX = (targetNode.position.x + 160 / 2 - offsetX) * scale;
-      let endY = (targetNode.position.y + 50 / 2 - offsetY) * scale;
+      const startX = (sourceNode.position.x + 160 / 2 - offsetX) * scale;
+      const startY = (sourceNode.position.y + 50 / 2 - offsetY) * scale;
+      const endX = (targetNode.position.x + 160 / 2 - offsetX) * scale;
+      const endY = (targetNode.position.y + 50 / 2 - offsetY) * scale;
 
-      if (edge.sourceHandle === 'source-right') startX += BOX_WIDTH / 2;
-      if (edge.sourceHandle === 'source-left') startX -= BOX_WIDTH / 2;
-      if (edge.sourceHandle === 'source-top') startY -= BOX_HEIGHT / 2;
-      if (edge.sourceHandle === 'source-bottom') startY += BOX_HEIGHT / 2;
-
-      if (edge.targetHandle === 'target-right') endX += BOX_WIDTH / 2;
-      if (edge.targetHandle === 'target-left') endX -= BOX_WIDTH / 2;
-      if (edge.targetHandle === 'target-top') endY -= BOX_HEIGHT / 2;
-      if (edge.targetHandle === 'target-bottom') endY += BOX_HEIGHT / 2;
-
-      if (edge.sourceHandle === 'source-right' || edge.sourceHandle === 'source-left') {
-        const midX = startX + (endX - startX) / 2;
-        doc.line(startX, startY, midX, startY);
-        doc.line(midX, startY, midX, endY);
-        doc.line(midX, endY, endX, endY);
-      } else {
-        const midY = startY + (endY - startY) / 2;
-        doc.line(startX, startY, startX, midY);
-        doc.line(startX, midY, endX, midY);
-        doc.line(endX, midY, endX, endY);
-      }
+      doc.line(startX, startY, endX, endY);
     }
   });
 

@@ -24,9 +24,7 @@ export function cleanId(val: string | null | undefined): string {
 }
 
 export function parseGedcom(content: string, source: string = 'other'): ParsedGedcom {
-  // Remove BOM and null bytes
   content = content.replace(/^\uFEFF/, '').replace(/\0/g, '');
-  // Split by any newline character
   const lines = content.split(/\r\n|\n|\r/);
   
   const individuals: Record<string, Individual> = {};
@@ -40,8 +38,6 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
     line = line.trim();
     if (!line) continue;
     
-    // Match standard GEDCOM lines: "level [id] tag [value]"
-    // Examples: "0 @I1@ INDI", "1 NAME John /Doe/", "2 DATE 3 JUL 1979"
     const match = line.match(/^(\d+)\s+(@[^@]+@\s+)?([A-Za-z0-9_]+)(?:\s+(.*))?$/);
     if (!match) continue;
     
@@ -50,7 +46,6 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
     const tag = match[3].toUpperCase();
     let value = match[4] ? match[4].trim() : '';
     
-    // Some software (like older MyHeritage exports) might put the ID after the tag: "0 INDI @I1@"
     if (level === 0 && !idMatch && value.match(/^@[^@]+@$/)) {
       if (tag === 'INDI' || tag === 'FAM') {
         idMatch = value;
@@ -115,11 +110,9 @@ export interface TreeNode {
   name: string;
   birth: string;
   death: string;
-  generation: number;
-  father: TreeNode | null;
-  mother: TreeNode | null;
-  subtreeHeight: number;
-  subtreeWidth?: number;
+  parents: TreeNode[];
+  spouses: TreeNode[];
+  children: TreeNode[];
   x: number;
   y: number;
 }
@@ -127,195 +120,98 @@ export interface TreeNode {
 export function buildTree(
   individuals: Record<string, Individual>,
   families: Record<string, Family>,
-  rootId: string,
-  maxGen: number = 15
+  rootId: string
 ): TreeNode | null {
-  
-  function traverse(indiId: string, gen: number): TreeNode | null {
-    if (gen >= maxGen) return null;
-    
-    const cleanIndiId = cleanId(indiId);
-    const indi = individuals[cleanIndiId];
-    if (!indi) return null;
-    
-    const node: TreeNode = {
-      id: cleanIndiId,
-      name: indi.name,
-      birth: indi.birth,
-      death: indi.death,
-      generation: gen,
-      father: null,
-      mother: null,
-      subtreeHeight: 0,
-      x: 0,
-      y: 0
-    };
-    
-    let fam: Family | null = null;
-    
-    // 1. Try FAMC
-    for (const famcId of indi.famc) {
-      if (families[famcId]) {
-        fam = families[famcId];
-        break;
-      }
+  const nodes: Record<string, TreeNode> = {};
+  const visited = new Set<string>();
+
+  function getOrCreateNode(id: string): TreeNode {
+    if (!nodes[id]) {
+      const indi = individuals[id];
+      nodes[id] = {
+        id,
+        name: indi ? indi.name : 'Desconhecido',
+        birth: indi ? indi.birth : '',
+        death: indi ? indi.death : '',
+        parents: [],
+        spouses: [],
+        children: [],
+        x: 0,
+        y: 0
+      };
     }
-    
-    // 2. Fallback: search all families where this person is a child
-    if (!fam) {
-      for (const f of Object.values(families)) {
-        if (f.chil.includes(cleanIndiId)) {
-          fam = f;
-          break;
+    return nodes[id];
+  }
+
+  const queue = [rootId];
+  visited.add(rootId);
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const node = getOrCreateNode(currentId);
+    const indi = individuals[currentId];
+
+    if (!indi) continue;
+
+    for (const f of Object.values(families)) {
+      if (f.chil.includes(currentId)) {
+        if (f.husb) {
+          const father = getOrCreateNode(f.husb);
+          if (!node.parents.includes(father)) node.parents.push(father);
+          if (!father.children.includes(node)) father.children.push(node);
+          if (!visited.has(f.husb)) { visited.add(f.husb); queue.push(f.husb); }
+        }
+        if (f.wife) {
+          const mother = getOrCreateNode(f.wife);
+          if (!node.parents.includes(mother)) node.parents.push(mother);
+          if (!mother.children.includes(node)) mother.children.push(node);
+          if (!visited.has(f.wife)) { visited.add(f.wife); queue.push(f.wife); }
+        }
+      }
+      if (f.husb === currentId || f.wife === currentId) {
+        const spouseId = f.husb === currentId ? f.wife : f.husb;
+        if (spouseId) {
+          const spouse = getOrCreateNode(spouseId);
+          if (!node.spouses.includes(spouse)) node.spouses.push(spouse);
+          if (!spouse.spouses.includes(node)) spouse.spouses.push(node);
+          if (!visited.has(spouseId)) { visited.add(spouseId); queue.push(spouseId); }
+        }
+        for (const childId of f.chil) {
+          const child = getOrCreateNode(childId);
+          if (!node.children.includes(child)) node.children.push(child);
+          if (!child.parents.includes(node)) child.parents.push(node);
+          if (!visited.has(childId)) { visited.add(childId); queue.push(childId); }
         }
       }
     }
-    
-    if (fam) {
-      if (fam.husb) node.father = traverse(fam.husb, gen + 1);
-      if (fam.wife) node.mother = traverse(fam.wife, gen + 1);
-    }
-    
-    return node;
   }
-  
-  return traverse(rootId, 0);
-}
 
-export function getMaxGen(node: TreeNode | null): number {
-  if (!node) return 0;
-  return Math.max(
-    node.generation,
-    getMaxGen(node.father),
-    getMaxGen(node.mother)
-  );
+  return nodes[rootId];
 }
 
 export function applyLayout(root: TreeNode, mode: string) {
-  const BOX_WIDTH = 160;
-  const BOX_HEIGHT = 50;
-  const SPACING_X = 40;
-  const SPACING_Y = 20;
+  const SPACING = 200;
+  const visited = new Set<string>();
+  const queue: {node: TreeNode, x: number, y: number}[] = [{node: root, x: 0, y: 0}];
+  visited.add(root.id);
 
-  if (mode === 'horizontal') {
-    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
-    function doLayout(node: TreeNode | null, startY: number): number {
-      if (!node) return 0;
-      if (!node.father && !node.mother) {
-        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
-        node.x = node.generation * GEN_WIDTH;
-        node.y = startY + node.subtreeHeight / 2;
-        return node.subtreeHeight;
-      }
-      const hF = doLayout(node.father, startY);
-      const hM = doLayout(node.mother, startY + hF);
-      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
-      node.x = node.generation * GEN_WIDTH;
-      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
-      else if (node.father) node.y = node.father.y;
-      else if (node.mother) node.y = node.mother.y;
-      else node.y = startY + node.subtreeHeight / 2;
-      return node.subtreeHeight;
-    }
-    doLayout(root, 0);
-  } else if (mode === 'vertical') {
-    const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
-    function doLayoutV(node: TreeNode | null, startX: number): number {
-      if (!node) return 0;
-      if (!node.father && !node.mother) {
-        node.subtreeWidth = BOX_WIDTH + SPACING_Y;
-        node.y = -(node.generation * GEN_HEIGHT);
-        node.x = startX + node.subtreeWidth / 2;
-        return node.subtreeWidth;
-      }
-      const wF = doLayoutV(node.father, startX);
-      const wM = doLayoutV(node.mother, startX + wF);
-      node.subtreeWidth = Math.max(BOX_WIDTH + SPACING_Y, wF + wM);
-      node.y = -(node.generation * GEN_HEIGHT);
-      if (node.father && node.mother) node.x = (node.father.x + node.mother.x) / 2;
-      else if (node.father) node.x = node.father.x;
-      else if (node.mother) node.x = node.mother.x;
-      else node.x = startX + node.subtreeWidth / 2;
-      return node.subtreeWidth;
-    }
-    doLayoutV(root, 0);
-  } else if (mode === 'butterfly') {
-    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
-    function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1): number {
-      if (!node) return 0;
-      if (!node.father && !node.mother) {
-        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
-        node.x = direction * (node.generation * GEN_WIDTH);
-        node.y = startY + node.subtreeHeight / 2;
-        return node.subtreeHeight;
-      }
-      const hF = doLayoutB(node.father, startY, direction);
-      const hM = doLayoutB(node.mother, startY + hF, direction);
-      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
-      node.x = direction * (node.generation * GEN_WIDTH);
-      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
-      else if (node.father) node.y = node.father.y;
-      else if (node.mother) node.y = node.mother.y;
-      else node.y = startY + node.subtreeHeight / 2;
-      return node.subtreeHeight;
-    }
-    const hF = doLayoutB(root.father, 0, -1);
-    const hM = doLayoutB(root.mother, 0, 1);
-    root.x = 0;
-    if (root.father && root.mother) root.y = (root.father.y + root.mother.y) / 2;
-    else if (root.father) root.y = root.father.y;
-    else if (root.mother) root.y = root.mother.y;
-    else root.y = 0;
-  } else if (mode === 'fan') {
-    const RADIUS_STEP = 200;
-    function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number) {
-      if (!node) return;
-      const radius = node.generation * RADIUS_STEP;
-      const angle = (angleStart + angleEnd) / 2;
-      node.x = Math.cos(angle) * radius;
-      node.y = -Math.sin(angle) * radius;
-      if (node.father) doLayoutFan(node.father, angleStart, angle);
-      if (node.mother) doLayoutFan(node.mother, angle, angleEnd);
-    }
-    root.x = 0;
-    root.y = 0;
-    if (root.father) doLayoutFan(root.father, Math.PI, Math.PI / 2);
-    if (root.mother) doLayoutFan(root.mother, Math.PI / 2, 0);
-  }
-}
+  while (queue.length > 0) {
+    const {node, x, y} = queue.shift()!;
+    node.x = x;
+    node.y = y;
 
-export function layoutTree(
-  node: TreeNode | null,
-  startY: number,
-  boxHeight: number,
-  boxSpacing: number,
-  genWidth: number
-): number {
-  if (!node) return 0;
-  
-  if (!node.father && !node.mother) {
-    node.subtreeHeight = boxHeight + boxSpacing;
-    node.x = node.generation * genWidth;
-    node.y = startY + node.subtreeHeight / 2;
-    return node.subtreeHeight;
+    const neighbors = [...node.parents, ...node.spouses, ...node.children];
+    let angle = 0;
+    const angleStep = (2 * Math.PI) / (neighbors.length || 1);
+
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor.id)) {
+        visited.add(neighbor.id);
+        const nx = x + Math.cos(angle) * SPACING;
+        const ny = y + Math.sin(angle) * SPACING;
+        queue.push({node: neighbor, x: nx, y: ny});
+        angle += angleStep;
+      }
+    }
   }
-  
-  const hF = layoutTree(node.father, startY, boxHeight, boxSpacing, genWidth);
-  const hM = layoutTree(node.mother, startY + hF, boxHeight, boxSpacing, genWidth);
-  
-  node.subtreeHeight = Math.max(boxHeight + boxSpacing, hF + hM);
-  node.x = node.generation * genWidth;
-  
-  // Center the node vertically between its parents
-  if (node.father && node.mother) {
-    node.y = (node.father.y + node.mother.y) / 2;
-  } else if (node.father) {
-    node.y = node.father.y;
-  } else if (node.mother) {
-    node.y = node.mother.y;
-  } else {
-    node.y = startY + node.subtreeHeight / 2;
-  }
-  
-  return node.subtreeHeight;
 }
