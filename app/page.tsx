@@ -96,7 +96,7 @@ export default function GedcomToPdfPage() {
             <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white">
               <TreeDeciduous size={20} />
             </div>
-            <h1 className="font-bold text-lg tracking-tight">GedTree <span className="text-indigo-600">Pro</span></h1>
+            <h1 className="font-bold text-lg tracking-tight">GEDTree</h1>
           </div>
           <div className="flex items-center gap-4 text-sm font-medium text-slate-500">
             <span className="hidden sm:inline">Editor Visual Interativo</span>
@@ -316,7 +316,7 @@ export default function GedcomToPdfPage() {
 
       <footer className="max-w-5xl mx-auto px-6 py-12 border-t border-slate-200 mt-12">
         <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-slate-400">
-          <p>© 2026 GedTree Pro - Ferramenta de Genealogia</p>
+          <p>© 2026 GEDTree - Ferramenta de Genealogia</p>
           <div className="flex gap-8">
             <a href="#" className="hover:text-indigo-600 transition-colors">Privacidade</a>
             <a href="#" className="hover:text-indigo-600 transition-colors">Termos</a>

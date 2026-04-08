@@ -58,7 +58,7 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
     const scale = Math.min(scaleX, scaleY, 1.0); // Don't scale up, only down if needed
 
     drawNodesAndEdges(doc, nodes, edges, minX, minY, scale, PAGE_WIDTH, PAGE_HEIGHT, 0, 0);
-    doc.save(`arvore_genealogica_poster_${pageSize}.pdf`);
+    doc.save(`GEDTree_poster_${pageSize}.pdf`);
 
   } else {
     // Generate Grid
@@ -135,7 +135,7 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
       }
     }
 
-    doc.save(`arvore_genealogica_grid_${pageSize}.pdf`);
+    doc.save(`GEDTree_grid_${pageSize}.pdf`);
   }
 }
 
