@@ -94,19 +94,14 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
         const currentOffsetX = minX + (col * effWidth - PRINT_MARGIN) / scale;
         const currentOffsetY = minY + (r * effHeight - PRINT_MARGIN) / scale;
 
-        doc.advancedAPI(api => {
-          api.saveGraphicsState();
-          api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, PRINT_MARGIN, PRINT_MARGIN));
-          api.rect(0, 0, effWidth, effHeight);
-          api.clip();
-          api.setCurrentTransformationMatrix(api.Matrix(1, 0, 0, 1, -PRINT_MARGIN, -PRINT_MARGIN));
-        });
-
         drawNodesAndEdges(doc, nodes, edges, currentOffsetX, currentOffsetY, scale, effWidth, effHeight, col, r);
 
-        doc.advancedAPI(api => {
-          api.restoreGraphicsState();
-        });
+        // Draw white margins to hide overflow (manual clipping)
+        doc.setFillColor(255, 255, 255);
+        doc.rect(0, 0, PAGE_WIDTH, PRINT_MARGIN, 'F'); // Top
+        doc.rect(0, PAGE_HEIGHT - PRINT_MARGIN, PAGE_WIDTH, PRINT_MARGIN, 'F'); // Bottom
+        doc.rect(0, 0, PRINT_MARGIN, PAGE_HEIGHT, 'F'); // Left
+        doc.rect(PAGE_WIDTH - PRINT_MARGIN, 0, PRINT_MARGIN, PAGE_HEIGHT, 'F'); // Right
 
         // Draw Margins and Guides
         doc.setDrawColor(200, 200, 200);

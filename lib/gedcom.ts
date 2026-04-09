@@ -117,6 +117,9 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
       // Merge data if primary is missing something
       const primary = individuals[primaryId];
       if (!primary.death && indi.death) primary.death = indi.death;
+      if (indi.famc && indi.famc.length > 0) {
+        primary.famc = Array.from(new Set([...(primary.famc || []), ...indi.famc]));
+      }
       
       delete individuals[id];
     } else {
@@ -260,6 +263,33 @@ export function applyLayout(root: TreeNode, mode: string) {
       return node.subtreeHeight;
     }
     doLayout(root, 0);
+
+    function calcDescendantHeight(node: TreeNode | null): number {
+      if (!node) return 0;
+      if (node.children.length === 0) {
+        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
+        return node.subtreeHeight;
+      }
+      let h = 0;
+      for (const child of node.children) {
+        h += calcDescendantHeight(child);
+      }
+      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, h);
+      return node.subtreeHeight;
+    }
+    function doLayoutDescendants(node: TreeNode | null) {
+      if (!node || node.children.length === 0) return;
+      const totalHeight = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_HEIGHT + SPACING_Y), 0);
+      let currentY = node.y - totalHeight / 2;
+      for (const child of node.children) {
+        child.x = child.generation * GEN_WIDTH;
+        child.y = currentY + (child.subtreeHeight || BOX_HEIGHT + SPACING_Y) / 2;
+        currentY += (child.subtreeHeight || BOX_HEIGHT + SPACING_Y);
+        doLayoutDescendants(child);
+      }
+    }
+    calcDescendantHeight(root);
+    doLayoutDescendants(root);
   } else if (mode === 'vertical') {
     const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
     function doLayoutV(node: TreeNode | null, startX: number): number {
@@ -281,6 +311,33 @@ export function applyLayout(root: TreeNode, mode: string) {
       return node.subtreeHeight;
     }
     doLayoutV(root, 0);
+
+    function calcDescendantWidth(node: TreeNode | null): number {
+      if (!node) return 0;
+      if (node.children.length === 0) {
+        node.subtreeHeight = BOX_WIDTH + SPACING_Y; // using subtreeHeight for width
+        return node.subtreeHeight;
+      }
+      let w = 0;
+      for (const child of node.children) {
+        w += calcDescendantWidth(child);
+      }
+      node.subtreeHeight = Math.max(BOX_WIDTH + SPACING_Y, w);
+      return node.subtreeHeight;
+    }
+    function doLayoutDescendantsV(node: TreeNode | null) {
+      if (!node || node.children.length === 0) return;
+      const totalWidth = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_WIDTH + SPACING_Y), 0);
+      let currentX = node.x - totalWidth / 2;
+      for (const child of node.children) {
+        child.y = -(child.generation * GEN_HEIGHT);
+        child.x = currentX + (child.subtreeHeight || BOX_WIDTH + SPACING_Y) / 2;
+        currentX += (child.subtreeHeight || BOX_WIDTH + SPACING_Y);
+        doLayoutDescendantsV(child);
+      }
+    }
+    calcDescendantWidth(root);
+    doLayoutDescendantsV(root);
   } else if (mode === 'butterfly') {
     const GEN_WIDTH = BOX_WIDTH + SPACING_X;
     function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1): number {
@@ -305,6 +362,34 @@ export function applyLayout(root: TreeNode, mode: string) {
     const hM = doLayoutB(root.mother, 0, 1);
     root.x = 0;
     root.y = Math.max(hF, hM) / 2;
+
+    const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
+    function calcDescendantWidthB(node: TreeNode | null): number {
+      if (!node) return 0;
+      if (node.children.length === 0) {
+        node.subtreeHeight = BOX_WIDTH + SPACING_Y;
+        return node.subtreeHeight;
+      }
+      let w = 0;
+      for (const child of node.children) {
+        w += calcDescendantWidthB(child);
+      }
+      node.subtreeHeight = Math.max(BOX_WIDTH + SPACING_Y, w);
+      return node.subtreeHeight;
+    }
+    function doLayoutDescendantsB(node: TreeNode | null) {
+      if (!node || node.children.length === 0) return;
+      const totalWidth = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_WIDTH + SPACING_Y), 0);
+      let currentX = node.x - totalWidth / 2;
+      for (const child of node.children) {
+        child.y = node.y - (child.generation * GEN_HEIGHT);
+        child.x = currentX + (child.subtreeHeight || BOX_WIDTH + SPACING_Y) / 2;
+        currentX += (child.subtreeHeight || BOX_WIDTH + SPACING_Y);
+        doLayoutDescendantsB(child);
+      }
+    }
+    calcDescendantWidthB(root);
+    doLayoutDescendantsB(root);
   } else if (mode === 'fan') {
     const RADIUS_STEP = 200;
     function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number) {
@@ -324,6 +409,37 @@ export function applyLayout(root: TreeNode, mode: string) {
     for (let i = 0; i < root.parents.length; i++) {
       doLayoutFan(root.parents[i], Math.PI - (i + 1) * angleStep, Math.PI - i * angleStep);
     }
+
+    function calcDescendantLeaves(node: TreeNode | null): number {
+      if (!node) return 0;
+      if (node.children.length === 0) {
+        node.subtreeHeight = 1;
+        return 1;
+      }
+      let leaves = 0;
+      for (const child of node.children) {
+        leaves += calcDescendantLeaves(child);
+      }
+      node.subtreeHeight = leaves;
+      return leaves;
+    }
+    function doLayoutFanDescendants(node: TreeNode | null, angleStart: number, angleEnd: number) {
+      if (!node || node.children.length === 0) return;
+      const radius = Math.abs(node.generation) * RADIUS_STEP;
+      const totalLeaves = node.subtreeHeight || 1;
+      let currentAngle = angleStart;
+      for (const child of node.children) {
+        const childLeaves = child.subtreeHeight || 1;
+        const angleShare = (childLeaves / totalLeaves) * (angleEnd - angleStart);
+        const childAngle = currentAngle + angleShare / 2;
+        child.x = Math.cos(childAngle) * radius;
+        child.y = -Math.sin(childAngle) * radius;
+        doLayoutFanDescendants(child, currentAngle, currentAngle + angleShare);
+        currentAngle += angleShare;
+      }
+    }
+    calcDescendantLeaves(root);
+    doLayoutFanDescendants(root, Math.PI, 2 * Math.PI);
   }
 
   // Post-processing to position unpositioned nodes

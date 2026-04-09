@@ -21,12 +21,11 @@ import { MousePointer2, Hand, ZoomIn, ZoomOut, Maximize, Minimize, Focus, Undo2,
 
 // Custom Node Component for a Person
 const PersonNode = ({ id, data }: { id: string, data: any }) => {
-  const { setNodes, setEdges } = useReactFlow();
+  const { deleteElements } = useReactFlow();
   
   const onDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setNodes((nodes) => nodes.filter((node) => node.id !== id));
-    setEdges((edges) => edges.filter((edge) => edge.source !== id && edge.target !== id));
+    deleteElements({ nodes: [{ id }] });
   };
 
   return (
@@ -142,6 +141,13 @@ const FlowContent = ({ nodes, edges, setNodes, onNodesChange, onEdgesChange, isF
     setNodes(next);
   }, [future, nodes, setNodes]);
 
+  const handleNodesChange = useCallback((changes: any[]) => {
+    if (changes.some(c => c.type === 'remove')) {
+      takeSnapshot();
+    }
+    onNodesChange(changes);
+  }, [onNodesChange, takeSnapshot]);
+
   // Keyboard shortcuts for Undo/Redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -165,7 +171,7 @@ const FlowContent = ({ nodes, edges, setNodes, onNodesChange, onEdgesChange, isF
     <ReactFlow
       nodes={nodes}
       edges={edges}
-      onNodesChange={onNodesChange}
+      onNodesChange={handleNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeDragStart={takeSnapshot}
       onSelectionDragStart={takeSnapshot}
