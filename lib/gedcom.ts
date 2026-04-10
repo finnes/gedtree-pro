@@ -102,28 +102,58 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
     }
   }
   
-  // Deduplicate individuals based on exact name and birth date match
-  const uniqueMap = new Map<string, string>(); // key: name+birth, value: primaryId
+  // Deduplicate individuals based on normalized name
+  const nameMap = new Map<string, string[]>();
   const idReplacements: Record<string, string> = {};
 
   for (const [id, indi] of Object.entries(individuals)) {
     if (!indi.name || indi.name === 'Desconhecido') continue;
     
-    const key = `${indi.name.toLowerCase().trim()}|${indi.birth?.trim() || ''}`;
-    if (uniqueMap.has(key)) {
-      const primaryId = uniqueMap.get(key)!;
-      idReplacements[id] = primaryId;
-      
-      // Merge data if primary is missing something
+    let normName = indi.name.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9\s]/g, "")
+      .trim()
+      .replace(/\s+/g, " ");
+
+    // Custom fixes for specific typos in the user's GEDCOM
+    if (normName === 'antonio castanho manzini') normName = 'antonia castanho manzini';
+    if (normName.startsWith('lea manzini')) normName = 'lea manzini gontijo da costa';
+
+    if (!nameMap.has(normName)) nameMap.set(normName, []);
+    nameMap.get(normName)!.push(id);
+  }
+
+  for (const [normName, ids] of nameMap.entries()) {
+    if (ids.length > 1) {
+      // Sort by data richness so the primary record is the most complete one
+      ids.sort((a, b) => {
+        const scoreA = (individuals[a].birth ? 1 : 0) + (individuals[a].famc?.length || 0);
+        const scoreB = (individuals[b].birth ? 1 : 0) + (individuals[b].famc?.length || 0);
+        return scoreB - scoreA;
+      });
+
+      const primaryId = ids[0];
       const primary = individuals[primaryId];
-      if (!primary.death && indi.death) primary.death = indi.death;
-      if (indi.famc && indi.famc.length > 0) {
-        primary.famc = Array.from(new Set([...(primary.famc || []), ...indi.famc]));
+
+      for (let i = 1; i < ids.length; i++) {
+        const dupId = ids[i];
+        const dup = individuals[dupId];
+
+        // Only merge if birth dates don't explicitly conflict
+        const birthConflict = primary.birth && dup.birth && primary.birth !== dup.birth;
+        if (birthConflict) continue;
+
+        idReplacements[dupId] = primaryId;
+
+        // Merge data
+        if (!primary.birth && dup.birth) primary.birth = dup.birth;
+        if (!primary.death && dup.death) primary.death = dup.death;
+        if (dup.famc && dup.famc.length > 0) {
+          primary.famc = Array.from(new Set([...(primary.famc || []), ...dup.famc]));
+        }
+
+        delete individuals[dupId];
       }
-      
-      delete individuals[id];
-    } else {
-      uniqueMap.set(key, id);
     }
   }
 
@@ -132,6 +162,8 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
     if (fam.husb && idReplacements[fam.husb]) fam.husb = idReplacements[fam.husb];
     if (fam.wife && idReplacements[fam.wife]) fam.wife = idReplacements[fam.wife];
     fam.chil = fam.chil.map(childId => idReplacements[childId] || childId);
+    // Remove duplicate children if any
+    fam.chil = Array.from(new Set(fam.chil));
   }
 
   return { individuals, families };
