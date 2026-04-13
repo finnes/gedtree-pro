@@ -502,6 +502,22 @@ export function applyLayout(root: TreeNode, mode: string) {
   } else if (mode === 'fan') {
     const RADIUS_STEP = 250;
     const visitedAnc = new Set<string>();
+    
+    // Helper to calculate number of leaves in ancestor tree to allocate angle proportionally
+    function calcAncestorLeaves(node: TreeNode | null): number {
+      if (!node) return 0;
+      if (node.parents.length === 0) {
+        node.subtreeHeight = 1;
+        return 1;
+      }
+      let leaves = 0;
+      for (const parent of node.parents) {
+        leaves += calcAncestorLeaves(parent);
+      }
+      node.subtreeHeight = leaves;
+      return leaves;
+    }
+
     function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number, baseRadius: number) {
       if (!node || visitedAnc.has(node.id)) return;
       visitedAnc.add(node.id);
@@ -509,9 +525,15 @@ export function applyLayout(root: TreeNode, mode: string) {
       const angle = (angleStart + angleEnd) / 2;
       node.x = Math.cos(angle) * radius;
       node.y = -Math.sin(angle) * radius;
-      const angleStep = (angleEnd - angleStart) / (node.parents.length || 1);
+      
+      const totalLeaves = node.subtreeHeight || 1;
+      let currentAngle = angleStart;
       for (let i = 0; i < node.parents.length; i++) {
-        doLayoutFan(node.parents[i], angleStart + i * angleStep, angleStart + (i + 1) * angleStep, baseRadius);
+        const parent = node.parents[i];
+        const parentLeaves = parent.subtreeHeight || 1;
+        const angleShare = (parentLeaves / totalLeaves) * (angleEnd - angleStart);
+        doLayoutFan(parent, currentAngle, currentAngle + angleShare, baseRadius);
+        currentAngle += angleShare;
       }
     }
     
@@ -519,17 +541,25 @@ export function applyLayout(root: TreeNode, mode: string) {
     root.y = 0;
     visitedAnc.add(root.id);
     
-    // Root's ancestors (Left: 120 to 240 degrees)
-    const rootAngleStart = (2 * Math.PI) / 3; // 120 deg
-    const rootAngleEnd = (4 * Math.PI) / 3;   // 240 deg
-    const rootAngleStep = (rootAngleEnd - rootAngleStart) / (root.parents.length || 1);
+    calcAncestorLeaves(root);
+    
+    // Root's ancestors (Left: 90 to 270 degrees)
+    const rootAngleStart = Math.PI / 2; // 90 deg
+    const rootAngleEnd = (3 * Math.PI) / 2; // 270 deg
+    const totalRootLeaves = root.parents.reduce((sum, p) => sum + (p.subtreeHeight || 1), 0) || 1;
+    let currentRootAngle = rootAngleStart;
+    
     for (let i = 0; i < root.parents.length; i++) {
-      doLayoutFan(root.parents[i], rootAngleStart + i * rootAngleStep, rootAngleStart + (i + 1) * rootAngleStep, 0);
+      const parent = root.parents[i];
+      const parentLeaves = parent.subtreeHeight || 1;
+      const angleShare = (parentLeaves / totalRootLeaves) * (rootAngleEnd - rootAngleStart);
+      doLayoutFan(parent, currentRootAngle, currentRootAngle + angleShare, 0);
+      currentRootAngle += angleShare;
     }
 
-    // Spouses and their ancestors (Right: -60 to 60 degrees)
-    const spouseAngleStart = -Math.PI / 3; // -60 deg
-    const spouseAngleEnd = Math.PI / 3;    // 60 deg
+    // Spouses and their ancestors (Right: -90 to 90 degrees)
+    const spouseAngleStart = -Math.PI / 2; // -90 deg
+    const spouseAngleEnd = Math.PI / 2;    // 90 deg
     const spouseSlice = (spouseAngleEnd - spouseAngleStart) / (root.spouses.length || 1);
     
     for (let i = 0; i < root.spouses.length; i++) {
@@ -541,13 +571,20 @@ export function applyLayout(root: TreeNode, mode: string) {
       spouse.x = Math.cos(sAngle) * RADIUS_STEP;
       spouse.y = -Math.sin(sAngle) * RADIUS_STEP;
       
-      const pStep = (sEnd - sStart) / (spouse.parents.length || 1);
+      calcAncestorLeaves(spouse);
+      const totalSpouseLeaves = spouse.parents.reduce((sum, p) => sum + (p.subtreeHeight || 1), 0) || 1;
+      let currentSpouseAngle = sStart;
+      
       for (let j = 0; j < spouse.parents.length; j++) {
-        doLayoutFan(spouse.parents[j], sStart + j * pStep, sStart + (j + 1) * pStep, RADIUS_STEP);
+        const parent = spouse.parents[j];
+        const parentLeaves = parent.subtreeHeight || 1;
+        const angleShare = (parentLeaves / totalSpouseLeaves) * (sEnd - sStart);
+        doLayoutFan(parent, currentSpouseAngle, currentSpouseAngle + angleShare, RADIUS_STEP);
+        currentSpouseAngle += angleShare;
       }
     }
 
-    // Descendants (Bottom: 240 to 300 degrees)
+    // Descendants (Bottom: 210 to 330 degrees)
     const visitedDesc = new Set<string>();
     function calcDescendantLeaves(node: TreeNode | null): number {
       if (!node || visitedDesc.has(node.id)) return node?.subtreeHeight || 0;
@@ -582,7 +619,7 @@ export function applyLayout(root: TreeNode, mode: string) {
       }
     }
     calcDescendantLeaves(root);
-    doLayoutFanDescendants(root, (4 * Math.PI) / 3, (5 * Math.PI) / 3, 0); // 240 to 300 deg
+    doLayoutFanDescendants(root, (7 * Math.PI) / 6, (11 * Math.PI) / 6, 0); // 210 to 330 deg
   }
 
   // Post-processing to position unpositioned nodes
