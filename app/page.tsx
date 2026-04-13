@@ -248,6 +248,10 @@ export default function GedcomToPdfPage() {
                     <option value={3}>3 Gerações</option>
                     <option value={4}>4 Gerações</option>
                     <option value={5}>5 Gerações</option>
+                    <option value={6}>6 Gerações</option>
+                    <option value={7}>7 Gerações</option>
+                    <option value={8}>8 Gerações</option>
+                    <option value={9}>9 Gerações</option>
                     <option value={10}>10 Gerações</option>
                     <option value={15}>15 Gerações</option>
                     <option value={20}>20 Gerações</option>

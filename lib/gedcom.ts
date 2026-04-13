@@ -212,11 +212,11 @@ export function buildTree(
     return nodes[id];
   }
 
-  const queue = [{id: rootId, gen: 0}];
+  const queue = [{id: rootId, gen: 0, role: 'root'}];
   visited.add(rootId);
 
   while (queue.length > 0) {
-    const {id: currentId, gen} = queue.shift()!;
+    const {id: currentId, gen, role} = queue.shift()!;
     const node = getOrCreateNode(currentId, gen);
     const indi = individuals[currentId];
 
@@ -224,37 +224,42 @@ export function buildTree(
 
     for (const f of Object.values(families)) {
       if (f.chil.includes(currentId)) {
-        if (gen < maxGen) {
+        if (gen < maxGen && (role === 'root' || role === 'ancestor' || role === 'root_spouse' || role === 'spouse_ancestor')) {
+          const nextRole = (role === 'root' || role === 'ancestor') ? 'ancestor' : 'spouse_ancestor';
           if (f.husb) {
             const father = getOrCreateNode(f.husb, gen + 1);
             if (!node.parents.includes(father)) node.parents.push(father);
             if (!father.children.includes(node)) father.children.push(node);
             node.father = father;
-            if (!visited.has(f.husb)) { visited.add(f.husb); queue.push({id: f.husb, gen: gen + 1}); }
+            if (!visited.has(f.husb)) { visited.add(f.husb); queue.push({id: f.husb, gen: gen + 1, role: nextRole}); }
           }
           if (f.wife) {
             const mother = getOrCreateNode(f.wife, gen + 1);
             if (!node.parents.includes(mother)) node.parents.push(mother);
             if (!mother.children.includes(node)) mother.children.push(node);
             node.mother = mother;
-            if (!visited.has(f.wife)) { visited.add(f.wife); queue.push({id: f.wife, gen: gen + 1}); }
+            if (!visited.has(f.wife)) { visited.add(f.wife); queue.push({id: f.wife, gen: gen + 1, role: nextRole}); }
           }
         }
       }
+      
       if (f.husb === currentId || f.wife === currentId) {
         const spouseId = f.husb === currentId ? f.wife : f.husb;
         if (spouseId) {
-          const spouse = getOrCreateNode(spouseId, gen);
-          if (!node.spouses.includes(spouse)) node.spouses.push(spouse);
-          if (!spouse.spouses.includes(node)) spouse.spouses.push(node);
-          if (!visited.has(spouseId)) { visited.add(spouseId); queue.push({id: spouseId, gen}); }
+          if (role === 'root' || role === 'descendant') {
+            const nextRole = role === 'root' ? 'root_spouse' : 'descendant';
+            const spouse = getOrCreateNode(spouseId, gen);
+            if (!node.spouses.includes(spouse)) node.spouses.push(spouse);
+            if (!spouse.spouses.includes(node)) spouse.spouses.push(node);
+            if (!visited.has(spouseId)) { visited.add(spouseId); queue.push({id: spouseId, gen, role: nextRole}); }
+          }
         }
-        if (gen > -maxGen) {
+        if (gen > -maxGen && (role === 'root' || role === 'descendant' || role === 'root_spouse')) {
           for (const childId of f.chil) {
             const child = getOrCreateNode(childId, gen - 1);
             if (!node.children.includes(child)) node.children.push(child);
             if (!child.parents.includes(node)) child.parents.push(node);
-            if (!visited.has(childId)) { visited.add(childId); queue.push({id: childId, gen: gen - 1}); }
+            if (!visited.has(childId)) { visited.add(childId); queue.push({id: childId, gen: gen - 1, role: 'descendant'}); }
           }
         }
       }
@@ -269,23 +274,39 @@ export function applyLayout(root: TreeNode, mode: string) {
   const BOX_HEIGHT = 50;
   const SPACING_X = 100;
   const SPACING_Y = 50;
+  
+  // Reset all positions
+  const resetQueue = [root];
+  const resetVisited = new Set<string>();
+  resetVisited.add(root.id);
+  while(resetQueue.length > 0) {
+    const n = resetQueue.shift()!;
+    n.x = 0; n.y = 0; n.subtreeHeight = 0;
+    for (const neighbor of [...n.parents, ...n.spouses, ...n.children]) {
+      if (!resetVisited.has(neighbor.id)) {
+        resetVisited.add(neighbor.id);
+        resetQueue.push(neighbor);
+      }
+    }
+  }
 
   if (mode === 'horizontal') {
     const GEN_WIDTH = BOX_WIDTH + SPACING_X;
     const visitedAnc = new Set<string>();
-    function doLayout(node: TreeNode | null, startY: number, baseX: number): number {
+    
+    function doLayout(node: TreeNode | null, startY: number, currentX: number): number {
       if (!node || visitedAnc.has(node.id)) return node?.subtreeHeight || 0;
       visitedAnc.add(node.id);
       if (!node.father && !node.mother) {
         node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
-        node.x = baseX + Math.abs(node.generation) * GEN_WIDTH;
+        node.x = currentX;
         node.y = startY + node.subtreeHeight / 2;
         return node.subtreeHeight;
       }
-      const hF = doLayout(node.father, startY, baseX);
-      const hM = doLayout(node.mother, startY + hF, baseX);
+      const hF = doLayout(node.father, startY, currentX + GEN_WIDTH);
+      const hM = doLayout(node.mother, startY + hF, currentX + GEN_WIDTH);
       node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
-      node.x = baseX + Math.abs(node.generation) * GEN_WIDTH;
+      node.x = currentX;
       if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
       else if (node.father) node.y = node.father.y;
       else if (node.mother) node.y = node.mother.y;
@@ -293,20 +314,25 @@ export function applyLayout(root: TreeNode, mode: string) {
       return node.subtreeHeight;
     }
     
-    const hF = doLayout(root.father, 0, 0);
-    const hM = doLayout(root.mother, hF, 0);
+    let currentY = 0;
+    
+    const hRF = doLayout(root.father, currentY, GEN_WIDTH);
+    const hRM = doLayout(root.mother, currentY + hRF, GEN_WIDTH);
+    const rootAncHeight = Math.max(hRF + hRM, BOX_HEIGHT + SPACING_Y);
+    
     root.x = 0;
-    root.y = Math.max(hF + hM, BOX_HEIGHT) / 2;
+    root.y = currentY + rootAncHeight / 2;
+    currentY += rootAncHeight;
     visitedAnc.add(root.id);
 
-    let spouseY = hF + hM + SPACING_Y;
     for (const spouse of root.spouses) {
+      const hSF = doLayout(spouse.father, currentY, GEN_WIDTH);
+      const hSM = doLayout(spouse.mother, currentY + hSF, GEN_WIDTH);
+      const spouseAncHeight = Math.max(hSF + hSM, BOX_HEIGHT + SPACING_Y);
+      
       spouse.x = 0;
-      const shF = doLayout(spouse.father, spouseY, 0);
-      const shM = doLayout(spouse.mother, spouseY + shF, 0);
-      const spouseHeight = Math.max(shF + shM, BOX_HEIGHT + SPACING_Y);
-      spouse.y = spouseY + spouseHeight / 2;
-      spouseY += spouseHeight;
+      spouse.y = currentY + spouseAncHeight / 2;
+      currentY += spouseAncHeight;
       visitedAnc.add(spouse.id);
     }
 
@@ -327,39 +353,40 @@ export function applyLayout(root: TreeNode, mode: string) {
     }
     
     const visitedDescLayout = new Set<string>();
-    function doLayoutDescendants(node: TreeNode | null, startX: number) {
+    function doLayoutDescendants(node: TreeNode | null, startX: number, centerY: number) {
       if (!node || node.children.length === 0 || visitedDescLayout.has(node.id)) return;
       visitedDescLayout.add(node.id);
       const totalHeight = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_HEIGHT + SPACING_Y), 0);
-      let currentY = node.y - totalHeight / 2;
+      let currentChildY = centerY - totalHeight / 2;
       const nextX = startX - GEN_WIDTH;
       for (const child of node.children) {
         child.x = nextX;
-        child.y = currentY + (child.subtreeHeight || BOX_HEIGHT + SPACING_Y) / 2;
-        currentY += (child.subtreeHeight || BOX_HEIGHT + SPACING_Y);
-        doLayoutDescendants(child, nextX);
+        child.y = currentChildY + (child.subtreeHeight || BOX_HEIGHT + SPACING_Y) / 2;
+        currentChildY += (child.subtreeHeight || BOX_HEIGHT + SPACING_Y);
+        doLayoutDescendants(child, nextX, child.y);
       }
     }
     calcDescendantHeight(root);
-    doLayoutDescendants(root, 0);
-  } else if (mode === 'vertical') {
-    const GEN_HEIGHT = BOX_HEIGHT + SPACING_Y; // Note: using SPACING_Y for height
-    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
+    doLayoutDescendants(root, 0, root.y);
     
+  } else if (mode === 'vertical') {
+    const GEN_HEIGHT = BOX_HEIGHT + SPACING_Y;
+    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
     const visitedAnc = new Set<string>();
-    function doLayoutV(node: TreeNode | null, startX: number, baseY: number): number {
+    
+    function doLayoutV(node: TreeNode | null, startX: number, currentY: number): number {
       if (!node || visitedAnc.has(node.id)) return node?.subtreeHeight || 0;
       visitedAnc.add(node.id);
       if (!node.father && !node.mother) {
-        node.subtreeHeight = BOX_WIDTH + SPACING_X; // Using subtreeHeight for width
-        node.y = baseY - Math.abs(node.generation) * GEN_HEIGHT;
+        node.subtreeHeight = BOX_WIDTH + SPACING_X;
+        node.y = currentY;
         node.x = startX + node.subtreeHeight / 2;
         return node.subtreeHeight;
       }
-      const wF = doLayoutV(node.father, startX, baseY);
-      const wM = doLayoutV(node.mother, startX + wF, baseY);
+      const wF = doLayoutV(node.father, startX, currentY - GEN_HEIGHT);
+      const wM = doLayoutV(node.mother, startX + wF, currentY - GEN_HEIGHT);
       node.subtreeHeight = Math.max(BOX_WIDTH + SPACING_X, wF + wM);
-      node.y = baseY - Math.abs(node.generation) * GEN_HEIGHT;
+      node.y = currentY;
       if (node.father && node.mother) node.x = (node.father.x + node.mother.x) / 2;
       else if (node.father) node.x = node.father.x;
       else if (node.mother) node.x = node.mother.x;
@@ -367,20 +394,25 @@ export function applyLayout(root: TreeNode, mode: string) {
       return node.subtreeHeight;
     }
     
-    const wF = doLayoutV(root.father, 0, 0);
-    const wM = doLayoutV(root.mother, wF, 0);
+    let currentX = 0;
+    
+    const wRF = doLayoutV(root.father, currentX, -GEN_HEIGHT);
+    const wRM = doLayoutV(root.mother, currentX + wRF, -GEN_HEIGHT);
+    const rootAncWidth = Math.max(wRF + wRM, BOX_WIDTH + SPACING_X);
+    
     root.y = 0;
-    root.x = Math.max(wF + wM, BOX_WIDTH) / 2;
+    root.x = currentX + rootAncWidth / 2;
+    currentX += rootAncWidth;
     visitedAnc.add(root.id);
 
-    let spouseX = wF + wM + SPACING_X;
     for (const spouse of root.spouses) {
+      const wSF = doLayoutV(spouse.father, currentX, -GEN_HEIGHT);
+      const wSM = doLayoutV(spouse.mother, currentX + wSF, -GEN_HEIGHT);
+      const spouseAncWidth = Math.max(wSF + wSM, BOX_WIDTH + SPACING_X);
+      
       spouse.y = 0;
-      const swF = doLayoutV(spouse.father, spouseX, 0);
-      const swM = doLayoutV(spouse.mother, spouseX + swF, 0);
-      const spouseWidth = Math.max(swF + swM, BOX_WIDTH + SPACING_X);
-      spouse.x = spouseX + spouseWidth / 2;
-      spouseX += spouseWidth;
+      spouse.x = currentX + spouseAncWidth / 2;
+      currentX += spouseAncWidth;
       visitedAnc.add(spouse.id);
     }
 
@@ -401,38 +433,39 @@ export function applyLayout(root: TreeNode, mode: string) {
     }
     
     const visitedDescLayout = new Set<string>();
-    function doLayoutDescendantsV(node: TreeNode | null, startY: number) {
+    function doLayoutDescendantsV(node: TreeNode | null, startY: number, centerX: number) {
       if (!node || node.children.length === 0 || visitedDescLayout.has(node.id)) return;
       visitedDescLayout.add(node.id);
       const totalWidth = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_WIDTH + SPACING_X), 0);
-      let currentX = node.x - totalWidth / 2;
+      let currentChildX = centerX - totalWidth / 2;
       const nextY = startY + GEN_HEIGHT;
       for (const child of node.children) {
         child.y = nextY;
-        child.x = currentX + (child.subtreeHeight || BOX_WIDTH + SPACING_X) / 2;
-        currentX += (child.subtreeHeight || BOX_WIDTH + SPACING_X);
-        doLayoutDescendantsV(child, nextY);
+        child.x = currentChildX + (child.subtreeHeight || BOX_WIDTH + SPACING_X) / 2;
+        currentChildX += (child.subtreeHeight || BOX_WIDTH + SPACING_X);
+        doLayoutDescendantsV(child, nextY, child.x);
       }
     }
     calcDescendantWidth(root);
-    doLayoutDescendantsV(root, 0);
+    doLayoutDescendantsV(root, 0, root.x);
+    
   } else if (mode === 'butterfly') {
     const GEN_WIDTH = BOX_WIDTH + SPACING_X;
-    
     const visitedAnc = new Set<string>();
-    function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1, baseX: number): number {
+    
+    function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1, currentX: number): number {
       if (!node || visitedAnc.has(node.id)) return node?.subtreeHeight || 0;
       visitedAnc.add(node.id);
       if (!node.father && !node.mother) {
         node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
-        node.x = baseX + direction * (Math.abs(node.generation) * GEN_WIDTH);
+        node.x = currentX;
         node.y = startY + node.subtreeHeight / 2;
         return node.subtreeHeight;
       }
-      const hF = doLayoutB(node.father, startY, direction, baseX);
-      const hM = doLayoutB(node.mother, startY + hF, direction, baseX);
+      const hF = doLayoutB(node.father, startY, direction, currentX + direction * GEN_WIDTH);
+      const hM = doLayoutB(node.mother, startY + hF, direction, currentX + direction * GEN_WIDTH);
       node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
-      node.x = baseX + direction * (Math.abs(node.generation) * GEN_WIDTH);
+      node.x = currentX;
       if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
       else if (node.father) node.y = node.father.y;
       else if (node.mother) node.y = node.mother.y;
@@ -440,30 +473,30 @@ export function applyLayout(root: TreeNode, mode: string) {
       return node.subtreeHeight;
     }
 
-    // Root's ancestors to the left (-1)
-    const hF = doLayoutB(root.father, 0, -1, 0);
-    const hM = doLayoutB(root.mother, hF, -1, 0);
-    root.x = 0;
-    root.y = Math.max(hF + hM, BOX_HEIGHT) / 2;
+    const ROOT_X = -(BOX_WIDTH / 2 + 20);
+    const SPOUSE_X = (BOX_WIDTH / 2 + 20);
+
+    const hRF = doLayoutB(root.father, 0, -1, ROOT_X - GEN_WIDTH);
+    const hRM = doLayoutB(root.mother, hRF, -1, ROOT_X - GEN_WIDTH);
+    const rootAncHeight = Math.max(hRF + hRM, BOX_HEIGHT + SPACING_Y);
+    
+    root.x = ROOT_X;
+    root.y = rootAncHeight / 2;
     visitedAnc.add(root.id);
 
-    // Spouses and their ancestors to the right (1)
     let spouseY = 0;
     for (let i = 0; i < root.spouses.length; i++) {
       const spouse = root.spouses[i];
-      // Spouse is at generation 0, but we want them to the right of root
-      spouse.x = GEN_WIDTH; 
+      const shF = doLayoutB(spouse.father, spouseY, 1, SPOUSE_X + GEN_WIDTH);
+      const shM = doLayoutB(spouse.mother, spouseY + shF, 1, SPOUSE_X + GEN_WIDTH);
+      const spouseAncHeight = Math.max(shF + shM, BOX_HEIGHT + SPACING_Y);
       
-      const shF = doLayoutB(spouse.father, spouseY, 1, GEN_WIDTH);
-      const shM = doLayoutB(spouse.mother, spouseY + shF, 1, GEN_WIDTH);
-      
-      const spouseHeight = Math.max(shF + shM, BOX_HEIGHT + SPACING_Y);
-      spouse.y = spouseY + spouseHeight / 2;
-      spouseY += spouseHeight;
+      spouse.x = SPOUSE_X;
+      spouse.y = spouseY + spouseAncHeight / 2;
+      spouseY += spouseAncHeight;
       visitedAnc.add(spouse.id);
     }
 
-    // Descendants go down
     const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
     const visitedDesc = new Set<string>();
     function calcDescendantWidthB(node: TreeNode | null): number {
@@ -482,30 +515,31 @@ export function applyLayout(root: TreeNode, mode: string) {
     }
     
     const visitedDescLayout = new Set<string>();
-    function doLayoutDescendantsB(node: TreeNode | null, startY: number) {
+    function doLayoutDescendantsB(node: TreeNode | null, startY: number, centerX: number) {
       if (!node || node.children.length === 0 || visitedDescLayout.has(node.id)) return;
       visitedDescLayout.add(node.id);
       const totalWidth = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_WIDTH + SPACING_Y), 0);
-      let currentX = node.x - totalWidth / 2;
+      let currentChildX = centerX - totalWidth / 2;
       const nextY = startY + GEN_HEIGHT;
       for (const child of node.children) {
         child.y = nextY;
-        child.x = currentX + (child.subtreeHeight || BOX_WIDTH + SPACING_Y) / 2;
-        currentX += (child.subtreeHeight || BOX_WIDTH + SPACING_Y);
-        doLayoutDescendantsB(child, nextY);
+        child.x = currentChildX + (child.subtreeHeight || BOX_WIDTH + SPACING_Y) / 2;
+        currentChildX += (child.subtreeHeight || BOX_WIDTH + SPACING_Y);
+        doLayoutDescendantsB(child, nextY, child.x);
       }
     }
     calcDescendantWidthB(root);
-    // Start descendants below the lowest of root or spouses
-    const maxRootY = Math.max(root.y, spouseY);
-    doLayoutDescendantsB(root, maxRootY + SPACING_Y);
+    const maxRootY = Math.max(rootAncHeight, spouseY);
+    doLayoutDescendantsB(root, maxRootY + SPACING_Y, 0);
+    
   } else if (mode === 'fan') {
     const RADIUS_STEP = 250;
     const visitedAnc = new Set<string>();
+    const visitedAncLeaves = new Set<string>();
     
-    // Helper to calculate number of leaves in ancestor tree to allocate angle proportionally
     function calcAncestorLeaves(node: TreeNode | null): number {
-      if (!node) return 0;
+      if (!node || visitedAncLeaves.has(node.id)) return node?.subtreeHeight || 0;
+      visitedAncLeaves.add(node.id);
       if (node.parents.length === 0) {
         node.subtreeHeight = 1;
         return 1;
@@ -518,10 +552,9 @@ export function applyLayout(root: TreeNode, mode: string) {
       return leaves;
     }
 
-    function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number, baseRadius: number) {
+    function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number, radius: number) {
       if (!node || visitedAnc.has(node.id)) return;
       visitedAnc.add(node.id);
-      const radius = baseRadius + Math.abs(node.generation) * RADIUS_STEP;
       const angle = (angleStart + angleEnd) / 2;
       node.x = Math.cos(angle) * radius;
       node.y = -Math.sin(angle) * radius;
@@ -532,20 +565,20 @@ export function applyLayout(root: TreeNode, mode: string) {
         const parent = node.parents[i];
         const parentLeaves = parent.subtreeHeight || 1;
         const angleShare = (parentLeaves / totalLeaves) * (angleEnd - angleStart);
-        doLayoutFan(parent, currentAngle, currentAngle + angleShare, baseRadius);
+        doLayoutFan(parent, currentAngle, currentAngle + angleShare, radius + RADIUS_STEP);
         currentAngle += angleShare;
       }
     }
     
-    root.x = 0;
+    root.x = -20;
     root.y = 0;
     visitedAnc.add(root.id);
     
     calcAncestorLeaves(root);
     
-    // Root's ancestors (Left: 90 to 270 degrees)
+    // Root's ancestors (Left: 90 to 180 degrees)
     const rootAngleStart = Math.PI / 2; // 90 deg
-    const rootAngleEnd = (3 * Math.PI) / 2; // 270 deg
+    const rootAngleEnd = Math.PI; // 180 deg
     const totalRootLeaves = root.parents.reduce((sum, p) => sum + (p.subtreeHeight || 1), 0) || 1;
     let currentRootAngle = rootAngleStart;
     
@@ -553,23 +586,23 @@ export function applyLayout(root: TreeNode, mode: string) {
       const parent = root.parents[i];
       const parentLeaves = parent.subtreeHeight || 1;
       const angleShare = (parentLeaves / totalRootLeaves) * (rootAngleEnd - rootAngleStart);
-      doLayoutFan(parent, currentRootAngle, currentRootAngle + angleShare, 0);
+      doLayoutFan(parent, currentRootAngle, currentRootAngle + angleShare, RADIUS_STEP);
       currentRootAngle += angleShare;
     }
 
-    // Spouses and their ancestors (Right: -90 to 90 degrees)
-    const spouseAngleStart = -Math.PI / 2; // -90 deg
-    const spouseAngleEnd = Math.PI / 2;    // 90 deg
+    // Spouses and their ancestors (Right: 0 to 90 degrees)
+    const spouseAngleStart = 0; // 0 deg
+    const spouseAngleEnd = Math.PI / 2; // 90 deg
     const spouseSlice = (spouseAngleEnd - spouseAngleStart) / (root.spouses.length || 1);
     
     for (let i = 0; i < root.spouses.length; i++) {
       const spouse = root.spouses[i];
       visitedAnc.add(spouse.id);
+      spouse.x = 20 + i * 40;
+      spouse.y = 0;
+      
       const sStart = spouseAngleStart + i * spouseSlice;
       const sEnd = spouseAngleStart + (i + 1) * spouseSlice;
-      const sAngle = (sStart + sEnd) / 2;
-      spouse.x = Math.cos(sAngle) * RADIUS_STEP;
-      spouse.y = -Math.sin(sAngle) * RADIUS_STEP;
       
       calcAncestorLeaves(spouse);
       const totalSpouseLeaves = spouse.parents.reduce((sum, p) => sum + (p.subtreeHeight || 1), 0) || 1;
@@ -584,7 +617,7 @@ export function applyLayout(root: TreeNode, mode: string) {
       }
     }
 
-    // Descendants (Bottom: 210 to 330 degrees)
+    // Descendants (Bottom: 180 to 360 degrees)
     const visitedDesc = new Set<string>();
     function calcDescendantLeaves(node: TreeNode | null): number {
       if (!node || visitedDesc.has(node.id)) return node?.subtreeHeight || 0;
@@ -619,7 +652,7 @@ export function applyLayout(root: TreeNode, mode: string) {
       }
     }
     calcDescendantLeaves(root);
-    doLayoutFanDescendants(root, (7 * Math.PI) / 6, (11 * Math.PI) / 6, 0); // 210 to 330 deg
+    doLayoutFanDescendants(root, Math.PI, 2 * Math.PI, 0); // 180 to 360 deg
   }
 
   // Post-processing to position unpositioned nodes
