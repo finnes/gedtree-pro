@@ -319,21 +319,32 @@ export function applyLayout(root: TreeNode, mode: string) {
     const hRF = doLayout(root.father, currentY, GEN_WIDTH);
     const hRM = doLayout(root.mother, currentY + hRF, GEN_WIDTH);
     const rootAncHeight = Math.max(hRF + hRM, BOX_HEIGHT + SPACING_Y);
-    
-    root.x = 0;
-    root.y = currentY + rootAncHeight / 2;
     currentY += rootAncHeight;
-    visitedAnc.add(root.id);
 
     for (const spouse of root.spouses) {
       const hSF = doLayout(spouse.father, currentY, GEN_WIDTH);
       const hSM = doLayout(spouse.mother, currentY + hSF, GEN_WIDTH);
       const spouseAncHeight = Math.max(hSF + hSM, BOX_HEIGHT + SPACING_Y);
-      
-      spouse.x = 0;
-      spouse.y = currentY + spouseAncHeight / 2;
       currentY += spouseAncHeight;
+    }
+
+    // Cluster root and spouses in the center of the ancestor block
+    const totalCenterNodes = 1 + root.spouses.length;
+    const centerSpacing = BOX_HEIGHT + 20;
+    const totalCenterHeight = totalCenterNodes * centerSpacing;
+    
+    let startCenterY = (currentY / 2) - (totalCenterHeight / 2) + (centerSpacing / 2);
+
+    root.x = 0;
+    root.y = startCenterY;
+    visitedAnc.add(root.id);
+    startCenterY += centerSpacing;
+
+    for (const spouse of root.spouses) {
+      spouse.x = 0;
+      spouse.y = startCenterY;
       visitedAnc.add(spouse.id);
+      startCenterY += centerSpacing;
     }
 
     const visitedDesc = new Set<string>();
@@ -399,21 +410,32 @@ export function applyLayout(root: TreeNode, mode: string) {
     const wRF = doLayoutV(root.father, currentX, -GEN_HEIGHT);
     const wRM = doLayoutV(root.mother, currentX + wRF, -GEN_HEIGHT);
     const rootAncWidth = Math.max(wRF + wRM, BOX_WIDTH + SPACING_X);
-    
-    root.y = 0;
-    root.x = currentX + rootAncWidth / 2;
     currentX += rootAncWidth;
-    visitedAnc.add(root.id);
 
     for (const spouse of root.spouses) {
       const wSF = doLayoutV(spouse.father, currentX, -GEN_HEIGHT);
       const wSM = doLayoutV(spouse.mother, currentX + wSF, -GEN_HEIGHT);
       const spouseAncWidth = Math.max(wSF + wSM, BOX_WIDTH + SPACING_X);
-      
-      spouse.y = 0;
-      spouse.x = currentX + spouseAncWidth / 2;
       currentX += spouseAncWidth;
+    }
+
+    // Cluster root and spouses in the center of the ancestor block
+    const totalCenterNodes = 1 + root.spouses.length;
+    const centerSpacing = BOX_WIDTH + 20;
+    const totalCenterWidth = totalCenterNodes * centerSpacing;
+    
+    let startCenterX = (currentX / 2) - (totalCenterWidth / 2) + (centerSpacing / 2);
+
+    root.y = 0;
+    root.x = startCenterX;
+    visitedAnc.add(root.id);
+    startCenterX += centerSpacing;
+
+    for (const spouse of root.spouses) {
+      spouse.y = 0;
+      spouse.x = startCenterX;
       visitedAnc.add(spouse.id);
+      startCenterX += centerSpacing;
     }
 
     const visitedDesc = new Set<string>();
