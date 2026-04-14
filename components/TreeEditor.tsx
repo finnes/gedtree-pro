@@ -465,8 +465,6 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
 
     const treeW = Math.max(maxX - minX, 100);
     const treeH = Math.max(maxY - minY, 100);
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
 
     let boxW = pSize.w * 2;
     let boxH = pSize.h * 2;
@@ -483,19 +481,29 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
             boxW = treeH * pageRatio;
         }
     } else {
-        // Grid mode: calculate how many pages are needed
-        const effWidth = pSize.w * 2;
-        const effHeight = pSize.h * 2;
-        const cols = Math.max(1, Math.ceil(treeW / effWidth));
-        const rows = Math.max(1, Math.ceil(treeH / effHeight));
-        boxW = cols * effWidth;
-        boxH = rows * effHeight;
+        // Grid mode: calculate how many pages are needed matching pdf.ts logic
+        const PRINT_MARGIN = 10;
+        const effWidthMM = pSize.w - 2 * PRINT_MARGIN;
+        const effHeightMM = pSize.h - 2 * PRINT_MARGIN;
+        
+        const maxAllowedHeightMM = effHeightMM * 6;
+        let scale = 0.3125;
+        if (treeH * scale > maxAllowedHeightMM) {
+            scale = maxAllowedHeightMM / treeH;
+            scale = Math.max(scale, 0.1);
+        }
+        
+        const cols = Math.max(1, Math.ceil((treeW * scale) / effWidthMM));
+        const rows = Math.max(1, Math.ceil((treeH * scale) / effHeightMM));
+        
+        boxW = (cols * effWidthMM) / scale;
+        boxH = (rows * effHeightMM) / scale;
     }
 
     newNodes.push({
         id: 'boundary',
         type: 'boundary',
-        position: { x: centerX - boxW / 2, y: centerY - boxH / 2 },
+        position: { x: minX, y: minY },
         data: { width: boxW, height: boxH, format: exportFormat, pageSize: pageSize },
         zIndex: -1,
         selectable: false,
@@ -508,6 +516,42 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
     setNodes(newNodes);
     setEdges(newEdges);
   }, [rootNode, layoutMode, layoutKey, exportFormat, pageSize, setNodes, setEdges]);
+
+  // Dynamic edge handle updating when nodes are dragged
+  useEffect(() => {
+    if (nodes.length === 0 || edges.length === 0) return;
+    
+    setEdges((currentEdges) => {
+      let changed = false;
+      const newEdges = currentEdges.map(edge => {
+        const sourceNode = nodes.find(n => n.id === edge.source);
+        const targetNode = nodes.find(n => n.id === edge.target);
+        if (!sourceNode || !targetNode) return edge;
+
+        const dx = targetNode.position.x - sourceNode.position.x;
+        const dy = targetNode.position.y - sourceNode.position.y;
+
+        let sourceHandle = 'source-bottom';
+        let targetHandle = 'target-top';
+
+        if (Math.abs(dx) > Math.abs(dy)) {
+          sourceHandle = dx > 0 ? 'source-right' : 'source-left';
+          targetHandle = dx > 0 ? 'target-left' : 'target-right';
+        } else {
+          sourceHandle = dy > 0 ? 'source-bottom' : 'source-top';
+          targetHandle = dy > 0 ? 'target-top' : 'target-bottom';
+        }
+
+        if (edge.sourceHandle !== sourceHandle || edge.targetHandle !== targetHandle) {
+          changed = true;
+          return { ...edge, sourceHandle, targetHandle };
+        }
+        return edge;
+      });
+      
+      return changed ? newEdges : currentEdges;
+    });
+  }, [nodes, setEdges]);
 
   // Notify parent component when nodes/edges change (for PDF export)
   useEffect(() => {
