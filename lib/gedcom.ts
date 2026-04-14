@@ -282,6 +282,9 @@ export function applyLayout(root: TreeNode, mode: string) {
   while(resetQueue.length > 0) {
     const n = resetQueue.shift()!;
     n.x = 0; n.y = 0; n.subtreeHeight = 0;
+    (n as any).logicalY = 0;
+    (n as any).ancUnits = 0;
+    (n as any).descUnits = 0;
     for (const neighbor of [...n.parents, ...n.spouses, ...n.children]) {
       if (!resetVisited.has(neighbor.id)) {
         resetVisited.add(neighbor.id);
@@ -290,567 +293,253 @@ export function applyLayout(root: TreeNode, mode: string) {
     }
   }
 
-  if (mode === 'horizontal') {
-    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
-    const visitedAnc = new Set<string>();
-    const visitedAncLayout = new Set<string>();
-    
-    function calcAncHeight(node: TreeNode | null): number {
-      if (!node || visitedAnc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedAnc.add(node.id);
-      if (!node.father && !node.mother) {
-        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
-        return node.subtreeHeight;
-      }
-      const hF = calcAncHeight(node.father);
-      const hM = calcAncHeight(node.mother);
-      node.subtreeHeight = Math.max(BOX_HEIGHT * 2 + SPACING_Y, hF + hM);
-      return node.subtreeHeight;
-    }
-
-    function doLayoutAnc(node: TreeNode | null, startY: number, currentX: number) {
-      if (!node || visitedAncLayout.has(node.id)) return;
-      visitedAncLayout.add(node.id);
-      
-      if (node.father || node.mother) {
-        const hF = node.father ? node.father.subtreeHeight : 0;
-        const hM = node.mother ? node.mother.subtreeHeight : 0;
-        const boundaryY = startY + hF;
-        
-        if (node.father && node.mother) {
-          node.father.x = currentX + GEN_WIDTH;
-          node.father.y = boundaryY - (BOX_HEIGHT / 2 + 5);
-          node.mother.x = currentX + GEN_WIDTH;
-          node.mother.y = boundaryY + (BOX_HEIGHT / 2 + 5);
-        } else if (node.father) {
-          node.father.x = currentX + GEN_WIDTH;
-          node.father.y = startY + hF / 2;
-        } else if (node.mother) {
-          node.mother.x = currentX + GEN_WIDTH;
-          node.mother.y = startY + hM / 2;
-        }
-        
-        if (node.father) doLayoutAnc(node.father, startY, currentX + GEN_WIDTH);
-        if (node.mother) doLayoutAnc(node.mother, startY + hF, currentX + GEN_WIDTH);
-      }
-    }
-    
-    calcAncHeight(root);
-    
-    // Cluster root and spouses in the center
-    const totalCenterNodes = 1 + root.spouses.length;
-    const centerSpacing = BOX_HEIGHT + 20;
-    const totalCenterHeight = totalCenterNodes * centerSpacing;
-    
-    const rootAncHeight = root.subtreeHeight;
-    let startCenterY = (rootAncHeight / 2) - (totalCenterHeight / 2) + (centerSpacing / 2);
-
-    root.x = 0;
-    root.y = startCenterY;
-    visitedAncLayout.add(root.id);
-    startCenterY += centerSpacing;
-
-    for (const spouse of root.spouses) {
-      spouse.x = 0;
-      spouse.y = startCenterY;
-      visitedAncLayout.add(spouse.id);
-      startCenterY += centerSpacing;
-    }
-
-    doLayoutAnc(root, 0, 0);
-
-    const visitedDesc = new Set<string>();
-    function calcDescendantHeight(node: TreeNode | null): number {
-      if (!node || visitedDesc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedDesc.add(node.id);
-      
-      const spousesCount = node.spouses.length;
-      const nodeBlockHeight = (spousesCount + 1) * (BOX_HEIGHT + 10);
-
-      if (node.children.length === 0) {
-        node.subtreeHeight = Math.max(nodeBlockHeight, BOX_HEIGHT + SPACING_Y);
-        return node.subtreeHeight;
-      }
-      let h = 0;
-      for (const child of node.children) {
-        h += calcDescendantHeight(child);
-      }
-      node.subtreeHeight = Math.max(nodeBlockHeight, h);
-      return node.subtreeHeight;
-    }
-    
-    const visitedDescLayout = new Set<string>();
-    function doLayoutDescendants(node: TreeNode | null, startX: number, centerY: number) {
-      if (!node || visitedDescLayout.has(node.id)) return;
-      visitedDescLayout.add(node.id);
-      
-      let currentSpouseY = node.y + BOX_HEIGHT + 10;
-      for (const spouse of node.spouses) {
-        if (spouse.x === 0 && spouse.y === 0) {
-          spouse.x = node.x;
-          spouse.y = currentSpouseY;
-          currentSpouseY += BOX_HEIGHT + 10;
-        }
-      }
-
-      if (node.children.length === 0) return;
-
-      const totalHeight = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_HEIGHT + SPACING_Y), 0);
-      let currentChildY = centerY - totalHeight / 2;
-      const nextX = startX - GEN_WIDTH;
-      
-      for (const child of node.children) {
-        child.x = nextX;
-        child.y = currentChildY + (child.subtreeHeight || BOX_HEIGHT + SPACING_Y) / 2;
-        currentChildY += (child.subtreeHeight || BOX_HEIGHT + SPACING_Y);
-        doLayoutDescendants(child, nextX, child.y);
-      }
-    }
-    
-    calcDescendantHeight(root);
-    doLayoutDescendants(root, 0, root.y);
-    
-  } else if (mode === 'vertical') {
-    const GEN_HEIGHT = BOX_HEIGHT + SPACING_Y;
-    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
-    const visitedAnc = new Set<string>();
-    const visitedAncLayout = new Set<string>();
-    
-    function calcAncWidth(node: TreeNode | null): number {
-      if (!node || visitedAnc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedAnc.add(node.id);
-      if (!node.father && !node.mother) {
-        node.subtreeHeight = BOX_WIDTH + SPACING_X;
-        return node.subtreeHeight;
-      }
-      const wF = calcAncWidth(node.father);
-      const wM = calcAncWidth(node.mother);
-      node.subtreeHeight = Math.max(BOX_WIDTH * 2 + SPACING_X, wF + wM);
-      return node.subtreeHeight;
-    }
-
-    function doLayoutAncV(node: TreeNode | null, startX: number, currentY: number) {
-      if (!node || visitedAncLayout.has(node.id)) return;
-      visitedAncLayout.add(node.id);
-      
-      if (node.father || node.mother) {
-        const wF = node.father ? node.father.subtreeHeight : 0;
-        const wM = node.mother ? node.mother.subtreeHeight : 0;
-        const boundaryX = startX + wF;
-        
-        if (node.father && node.mother) {
-          node.father.y = currentY - GEN_HEIGHT;
-          node.father.x = boundaryX - (BOX_WIDTH / 2 + 10);
-          node.mother.y = currentY - GEN_HEIGHT;
-          node.mother.x = boundaryX + (BOX_WIDTH / 2 + 10);
-        } else if (node.father) {
-          node.father.y = currentY - GEN_HEIGHT;
-          node.father.x = startX + wF / 2;
-        } else if (node.mother) {
-          node.mother.y = currentY - GEN_HEIGHT;
-          node.mother.x = startX + wM / 2;
-        }
-        
-        if (node.father) doLayoutAncV(node.father, startX, currentY - GEN_HEIGHT);
-        if (node.mother) doLayoutAncV(node.mother, startX + wF, currentY - GEN_HEIGHT);
-      }
-    }
-    
-    calcAncWidth(root);
-    
-    // Cluster root and spouses in the center
-    const totalCenterNodes = 1 + root.spouses.length;
-    const centerSpacing = BOX_WIDTH + 20;
-    const totalCenterWidth = totalCenterNodes * centerSpacing;
-    
-    const rootAncWidth = root.subtreeHeight;
-    let startCenterX = (rootAncWidth / 2) - (totalCenterWidth / 2) + (centerSpacing / 2);
-
-    root.y = 0;
-    root.x = startCenterX;
-    visitedAncLayout.add(root.id);
-    startCenterX += centerSpacing;
-
-    for (const spouse of root.spouses) {
-      spouse.y = 0;
-      spouse.x = startCenterX;
-      visitedAncLayout.add(spouse.id);
-      startCenterX += centerSpacing;
-    }
-
-    doLayoutAncV(root, 0, 0);
-
-    const visitedDesc = new Set<string>();
-    function calcDescendantWidth(node: TreeNode | null): number {
-      if (!node || visitedDesc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedDesc.add(node.id);
-      
-      const spousesCount = node.spouses.length;
-      const nodeBlockWidth = (spousesCount + 1) * (BOX_WIDTH + 10);
-
-      if (node.children.length === 0) {
-        node.subtreeHeight = Math.max(nodeBlockWidth, BOX_WIDTH + SPACING_X);
-        return node.subtreeHeight;
-      }
-      let w = 0;
-      for (const child of node.children) {
-        w += calcDescendantWidth(child);
-      }
-      node.subtreeHeight = Math.max(nodeBlockWidth, w);
-      return node.subtreeHeight;
-    }
-    
-    const visitedDescLayout = new Set<string>();
-    function doLayoutDescendantsV(node: TreeNode | null, startY: number, centerX: number) {
-      if (!node || visitedDescLayout.has(node.id)) return;
-      visitedDescLayout.add(node.id);
-      
-      let currentSpouseX = node.x + BOX_WIDTH + 10;
-      for (const spouse of node.spouses) {
-        if (spouse.x === 0 && spouse.y === 0) {
-          spouse.y = node.y;
-          spouse.x = currentSpouseX;
-          currentSpouseX += BOX_WIDTH + 10;
-        }
-      }
-
-      if (node.children.length === 0) return;
-
-      const totalWidth = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_WIDTH + SPACING_X), 0);
-      let currentChildX = centerX - totalWidth / 2;
-      const nextY = startY + GEN_HEIGHT;
-      
-      for (const child of node.children) {
-        child.y = nextY;
-        child.x = currentChildX + (child.subtreeHeight || BOX_WIDTH + SPACING_X) / 2;
-        currentChildX += (child.subtreeHeight || BOX_WIDTH + SPACING_X);
-        doLayoutDescendantsV(child, nextY, child.x);
-      }
-    }
-    
-    calcDescendantWidth(root);
-    doLayoutDescendantsV(root, 0, root.x);
-    
-  } else if (mode === 'butterfly') {
-    const GEN_WIDTH = BOX_WIDTH + SPACING_X;
-    const visitedAnc = new Set<string>();
-    
-    function doLayoutB(node: TreeNode | null, startY: number, direction: -1 | 1, currentX: number): number {
-      if (!node || visitedAnc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedAnc.add(node.id);
-      if (!node.father && !node.mother) {
-        node.subtreeHeight = BOX_HEIGHT + SPACING_Y;
-        node.x = currentX;
-        node.y = startY + node.subtreeHeight / 2;
-        return node.subtreeHeight;
-      }
-      const hF = doLayoutB(node.father, startY, direction, currentX + direction * GEN_WIDTH);
-      const hM = doLayoutB(node.mother, startY + hF, direction, currentX + direction * GEN_WIDTH);
-      node.subtreeHeight = Math.max(BOX_HEIGHT + SPACING_Y, hF + hM);
-      node.x = currentX;
-      if (node.father && node.mother) node.y = (node.father.y + node.mother.y) / 2;
-      else if (node.father) node.y = node.father.y;
-      else if (node.mother) node.y = node.mother.y;
-      else node.y = startY + node.subtreeHeight / 2;
-      return node.subtreeHeight;
-    }
-
-    const ROOT_X = -(BOX_WIDTH / 2 + 20);
-    const SPOUSE_X = (BOX_WIDTH / 2 + 20);
-
-    const hRF = doLayoutB(root.father, 0, -1, ROOT_X - GEN_WIDTH);
-    const hRM = doLayoutB(root.mother, hRF, -1, ROOT_X - GEN_WIDTH);
-    const rootAncHeight = Math.max(hRF + hRM, BOX_HEIGHT + SPACING_Y);
-    
-    root.x = ROOT_X;
-    root.y = rootAncHeight / 2;
-    visitedAnc.add(root.id);
-
-    let spouseY = 0;
-    for (let i = 0; i < root.spouses.length; i++) {
-      const spouse = root.spouses[i];
-      const shF = doLayoutB(spouse.father, spouseY, 1, SPOUSE_X + GEN_WIDTH);
-      const shM = doLayoutB(spouse.mother, spouseY + shF, 1, SPOUSE_X + GEN_WIDTH);
-      const spouseAncHeight = Math.max(shF + shM, BOX_HEIGHT + SPACING_Y);
-      
-      spouse.x = SPOUSE_X;
-      spouse.y = spouseY + spouseAncHeight / 2;
-      spouseY += spouseAncHeight;
-      visitedAnc.add(spouse.id);
-    }
-
-    const GEN_HEIGHT = BOX_HEIGHT + SPACING_X;
-    const visitedDesc = new Set<string>();
-    function calcDescendantWidthB(node: TreeNode | null): number {
-      if (!node || visitedDesc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedDesc.add(node.id);
-      if (node.children.length === 0) {
-        node.subtreeHeight = BOX_WIDTH + SPACING_Y;
-        return node.subtreeHeight;
-      }
-      let w = 0;
-      for (const child of node.children) {
-        w += calcDescendantWidthB(child);
-      }
-      node.subtreeHeight = Math.max(BOX_WIDTH + SPACING_Y, w);
-      return node.subtreeHeight;
-    }
-    
-    const visitedDescLayout = new Set<string>();
-    function doLayoutDescendantsB(node: TreeNode | null, startY: number, centerX: number) {
-      if (!node || node.children.length === 0 || visitedDescLayout.has(node.id)) return;
-      visitedDescLayout.add(node.id);
-      const totalWidth = node.children.reduce((sum, c) => sum + (c.subtreeHeight || BOX_WIDTH + SPACING_Y), 0);
-      let currentChildX = centerX - totalWidth / 2;
-      const nextY = startY + GEN_HEIGHT;
-      for (const child of node.children) {
-        child.y = nextY;
-        child.x = currentChildX + (child.subtreeHeight || BOX_WIDTH + SPACING_Y) / 2;
-        currentChildX += (child.subtreeHeight || BOX_WIDTH + SPACING_Y);
-        doLayoutDescendantsB(child, nextY, child.x);
-      }
-    }
-    calcDescendantWidthB(root);
-    const maxRootY = Math.max(rootAncHeight, spouseY);
-    doLayoutDescendantsB(root, maxRootY + SPACING_Y, 0);
-    
-  } else if (mode === 'fan') {
-    const RADIUS_STEP = 250;
-    const visitedAnc = new Set<string>();
-    const visitedAncLeaves = new Set<string>();
-    
-    function calcAncestorLeaves(node: TreeNode | null): number {
-      if (!node || visitedAncLeaves.has(node.id)) return node?.subtreeHeight || 0;
-      visitedAncLeaves.add(node.id);
-      if (node.parents.length === 0) {
-        node.subtreeHeight = 1;
-        return 1;
-      }
-      let leaves = 0;
-      for (const parent of node.parents) {
-        leaves += calcAncestorLeaves(parent);
-      }
-      node.subtreeHeight = leaves;
-      return leaves;
-    }
-
-    function doLayoutFan(node: TreeNode | null, angleStart: number, angleEnd: number, radius: number) {
-      if (!node || visitedAnc.has(node.id)) return;
-      visitedAnc.add(node.id);
-      const angle = (angleStart + angleEnd) / 2;
-      node.x = Math.cos(angle) * radius;
-      node.y = -Math.sin(angle) * radius;
-      
-      const totalLeaves = node.subtreeHeight || 1;
-      let currentAngle = angleStart;
-      for (let i = 0; i < node.parents.length; i++) {
-        const parent = node.parents[i];
-        const parentLeaves = parent.subtreeHeight || 1;
-        const angleShare = (parentLeaves / totalLeaves) * (angleEnd - angleStart);
-        doLayoutFan(parent, currentAngle, currentAngle + angleShare, radius + RADIUS_STEP);
-        currentAngle += angleShare;
-      }
-    }
-    
-    // Spouses and their ancestors (Right: 0 to 90 degrees)
-    const spouseAngleStart = 0; // 0 deg
-    const spouseAngleEnd = Math.PI / 2; // 90 deg
-    const spouseSlice = (spouseAngleEnd - spouseAngleStart) / (root.spouses.length || 1);
-    
-    // Calculate total width needed for root + spouses
-    const totalCenterNodes = 1 + root.spouses.length;
-    const centerSpacing = BOX_WIDTH + 20;
-    const startX = -((totalCenterNodes - 1) * centerSpacing) / 2;
-
-    root.x = startX;
-    root.y = 0;
-    visitedAnc.add(root.id);
-    
-    calcAncestorLeaves(root);
-    
-    // Root's ancestors (Left: 90 to 180 degrees)
-    const rootAngleStart = Math.PI / 2; // 90 deg
-    const rootAngleEnd = Math.PI; // 180 deg
-    const totalRootLeaves = root.parents.reduce((sum, p) => sum + (p.subtreeHeight || 1), 0) || 1;
-    let currentRootAngle = rootAngleStart;
-    
-    for (let i = 0; i < root.parents.length; i++) {
-      const parent = root.parents[i];
-      const parentLeaves = parent.subtreeHeight || 1;
-      const angleShare = (parentLeaves / totalRootLeaves) * (rootAngleEnd - rootAngleStart);
-      doLayoutFan(parent, currentRootAngle, currentRootAngle + angleShare, RADIUS_STEP);
-      currentRootAngle += angleShare;
-    }
-
-    for (let i = 0; i < root.spouses.length; i++) {
-      const spouse = root.spouses[i];
-      visitedAnc.add(spouse.id);
-      spouse.x = startX + (i + 1) * centerSpacing;
-      spouse.y = 0;
-      
-      const sStart = spouseAngleStart + i * spouseSlice;
-      const sEnd = spouseAngleStart + (i + 1) * spouseSlice;
-      
-      calcAncestorLeaves(spouse);
-      const totalSpouseLeaves = spouse.parents.reduce((sum, p) => sum + (p.subtreeHeight || 1), 0) || 1;
-      let currentSpouseAngle = sStart;
-      
-      for (let j = 0; j < spouse.parents.length; j++) {
-        const parent = spouse.parents[j];
-        const parentLeaves = parent.subtreeHeight || 1;
-        const angleShare = (parentLeaves / totalSpouseLeaves) * (sEnd - sStart);
-        doLayoutFan(parent, currentSpouseAngle, currentSpouseAngle + angleShare, RADIUS_STEP);
-        currentSpouseAngle += angleShare;
-      }
-    }
-
-    // Descendants (Bottom: 180 to 360 degrees)
-    const visitedDesc = new Set<string>();
-    function calcDescendantLeaves(node: TreeNode | null): number {
-      if (!node || visitedDesc.has(node.id)) return node?.subtreeHeight || 0;
-      visitedDesc.add(node.id);
-      if (node.children.length === 0) {
-        node.subtreeHeight = 1;
-        return 1;
-      }
-      let leaves = 0;
-      for (const child of node.children) {
-        leaves += calcDescendantLeaves(child);
-      }
-      node.subtreeHeight = leaves;
-      return leaves;
-    }
-    
-    const visitedDescLayout = new Set<string>();
-    function doLayoutFanDescendants(node: TreeNode | null, angleStart: number, angleEnd: number, baseRadius: number) {
-      if (!node || node.children.length === 0 || visitedDescLayout.has(node.id)) return;
-      visitedDescLayout.add(node.id);
-      const radius = baseRadius + RADIUS_STEP;
-      const totalLeaves = node.subtreeHeight || 1;
-      let currentAngle = angleStart;
-      for (const child of node.children) {
-        const childLeaves = child.subtreeHeight || 1;
-        const angleShare = (childLeaves / totalLeaves) * (angleEnd - angleStart);
-        const childAngle = currentAngle + angleShare / 2;
-        child.x = Math.cos(childAngle) * radius;
-        child.y = -Math.sin(childAngle) * radius;
-        doLayoutFanDescendants(child, currentAngle, currentAngle + angleShare, radius);
-        currentAngle += angleShare;
-      }
-    }
-    calcDescendantLeaves(root);
-    doLayoutFanDescendants(root, Math.PI, 2 * Math.PI, 0); // 180 to 360 deg
+  // Unified Logical Layout
+  const visitedAnc = new Set<string>();
+  function calcAncUnits(node: TreeNode | null): number {
+    if (!node) return 0;
+    if ((node as any).ancUnits) return (node as any).ancUnits;
+    if (visitedAnc.has(node.id)) return 1;
+    visitedAnc.add(node.id);
+    const fU = calcAncUnits(node.father);
+    const mU = calcAncUnits(node.mother);
+    const units = Math.max(1, fU + mU);
+    (node as any).ancUnits = units;
+    return units;
   }
+  calcAncUnits(root);
 
-  // Post-processing to position unpositioned nodes
-  const queue = [root];
-  const visited = new Set<string>();
-  visited.add(root.id);
-
-  const occupied = new Set<string>();
-  const CELL_W = 200;
-  const CELL_H = 100;
-
-  function getCell(x: number, y: number) {
-    return `${Math.round(x / CELL_W)},${Math.round(y / CELL_H)}`;
-  }
-
-  // Mark initially positioned nodes
-  const allNodes = [root];
-  let qIdx = 0;
-  while (qIdx < allNodes.length) {
-    const n = allNodes[qIdx++];
-    if (n.x !== 0 || n.y !== 0 || n === root) {
-      occupied.add(getCell(n.x, n.y));
-    }
-    for (const neighbor of [...n.parents, ...n.spouses, ...n.children]) {
-      if (!allNodes.includes(neighbor)) {
-        allNodes.push(neighbor);
-      }
-    }
-  }
-
-  function findEmptyCell(startX: number, startY: number, preferHorizontal: boolean): { x: number, y: number } {
-    let radius = 0;
-    while (radius < 50) { // Search up to 50 cells away
-      // Check preferred direction first
-      if (preferHorizontal) {
-        for (let dx = -radius; dx <= radius; dx++) {
-          if (Math.abs(dx) === radius) {
-            const testX = startX + dx * CELL_W;
-            const testY = startY;
-            if (!occupied.has(getCell(testX, testY))) return { x: testX, y: testY };
-          }
-        }
-      } else {
-        for (let dy = -radius; dy <= radius; dy++) {
-          if (Math.abs(dy) === radius) {
-            const testX = startX;
-            const testY = startY + dy * CELL_H;
-            if (!occupied.has(getCell(testX, testY))) return { x: testX, y: testY };
-          }
-        }
-      }
-
-      // Then check all other cells in radius
-      for (let dx = -radius; dx <= radius; dx++) {
-        for (let dy = -radius; dy <= radius; dy++) {
-          if (Math.abs(dx) === radius || Math.abs(dy) === radius) {
-            const testX = startX + dx * CELL_W;
-            const testY = startY + dy * CELL_H;
-            if (!occupied.has(getCell(testX, testY))) {
-              return { x: testX, y: testY };
-            }
-          }
-        }
-      }
-      radius++;
-    }
-    return { x: startX, y: startY }; // Fallback
-  }
-  
-  while (queue.length > 0) {
-    const node = queue.shift()!;
+  const visitedDesc = new Set<string>();
+  function calcDescUnits(node: TreeNode | null): number {
+    if (!node) return 0;
+    if ((node as any).descUnits) return (node as any).descUnits;
+    if (visitedDesc.has(node.id)) return 1;
+    visitedDesc.add(node.id);
     
-    // Process spouses first (prefer horizontal)
-    for (const spouse of node.spouses) {
-      if (!visited.has(spouse.id)) {
-        visited.add(spouse.id);
-        if (spouse.x === 0 && spouse.y === 0) {
-          const pos = findEmptyCell(node.x, node.y, true);
-          spouse.x = pos.x;
-          spouse.y = pos.y;
-          occupied.add(getCell(pos.x, pos.y));
-        }
-        queue.push(spouse);
-      }
-    }
-
-    // Process children (prefer vertical down)
+    let childrenU = 0;
     for (const child of node.children) {
-      if (!visited.has(child.id)) {
-        visited.add(child.id);
-        if (child.x === 0 && child.y === 0) {
-          const pos = findEmptyCell(node.x, node.y + CELL_H, false);
-          child.x = pos.x;
-          child.y = pos.y;
-          occupied.add(getCell(pos.x, pos.y));
+      childrenU += calcDescUnits(child);
+    }
+    
+    const nodesInFamily = [node, ...node.spouses];
+    const familyU = nodesInFamily.reduce((sum, n) => sum + Math.max(1, calcAncUnits(n)), 0);
+    
+    const units = Math.max(familyU, childrenU);
+    (node as any).descUnits = units;
+    return units;
+  }
+  calcDescUnits(root);
+
+  const visitedAncLayout = new Set<string>();
+  function layoutAncLogical(node: TreeNode, nodeY: number, minY: number, maxY: number) {
+    if (visitedAncLayout.has(node.id)) return;
+    visitedAncLayout.add(node.id);
+    (node as any).logicalY = nodeY;
+    
+    const fU = node.father ? (node.father as any).ancUnits : 0;
+    const mU = node.mother ? (node.mother as any).ancUnits : 0;
+    const totalU = fU + mU;
+    
+    if (totalU > 0) {
+      const fRatio = fU / totalU;
+      const boundaryY = minY + (maxY - minY) * fRatio;
+      
+      if (node.father) layoutAncLogical(node.father, boundaryY - 0.4, minY, boundaryY);
+      if (node.mother) layoutAncLogical(node.mother, boundaryY + 0.4, boundaryY, maxY);
+    }
+  }
+
+  const visitedDescLayout = new Set<string>();
+  function layoutDescLogical(node: TreeNode, nodeY: number, minY: number, maxY: number) {
+    if (visitedDescLayout.has(node.id)) return;
+    visitedDescLayout.add(node.id);
+
+    const nodesInFamily = [node, ...node.spouses];
+    
+    // 1. Spouses should be physically close (1 unit apart)
+    const familyVisualHeight = nodesInFamily.length;
+    let currentVisualY = nodeY - familyVisualHeight / 2;
+    
+    // 2. Ancestors need their full logical space
+    const totalAncUnits = nodesInFamily.reduce((sum, n) => sum + Math.max(1, (n as any).ancUnits || 1), 0);
+    let currentAncMinY = nodeY - totalAncUnits / 2;
+
+    for (let i = 0; i < nodesInFamily.length; i++) {
+      const n = nodesInFamily[i];
+      
+      (n as any).logicalY = currentVisualY + 0.5;
+      currentVisualY += 1;
+      
+      const ancU = Math.max(1, (n as any).ancUnits || 1);
+      const ancMaxY = currentAncMinY + ancU;
+      
+      if (n.father || n.mother) {
+        const fU = n.father ? (n.father as any).ancUnits || 0 : 0;
+        const mU = n.mother ? (n.mother as any).ancUnits || 0 : 0;
+        const totalU = fU + mU;
+        
+        if (totalU > 0) {
+          const fRatio = fU / totalU;
+          const boundaryY = currentAncMinY + ancU * fRatio;
+          
+          if (n.father) layoutAncLogical(n.father, boundaryY - 0.4, currentAncMinY, boundaryY);
+          if (n.mother) layoutAncLogical(n.mother, boundaryY + 0.4, boundaryY, ancMaxY);
         }
-        queue.push(child);
+      }
+      
+      currentAncMinY = ancMaxY;
+    }
+    
+    if (node.children.length > 0) {
+      const totalChildrenU = node.children.reduce((sum, c) => sum + ((c as any).descUnits || 1), 0);
+      
+      // Pack children tightly in the center of the allocated space
+      const center = (minY + maxY) / 2;
+      let currentMinY = center - totalChildrenU / 2;
+      
+      for (const child of node.children) {
+        const cU = (child as any).descUnits || 1;
+        const cMaxY = currentMinY + cU;
+        
+        const cMidY = currentMinY + cU / 2;
+        layoutDescLogical(child, cMidY, currentMinY, cMaxY);
+        
+        currentMinY = cMaxY;
       }
     }
+  }
 
-    // Process parents (prefer vertical up)
-    for (const parent of node.parents) {
-      if (!visited.has(parent.id)) {
-        visited.add(parent.id);
-        if (parent.x === 0 && parent.y === 0) {
-          const pos = findEmptyCell(node.x, node.y - CELL_H, false);
-          parent.x = pos.x;
-          parent.y = pos.y;
-          occupied.add(getCell(pos.x, pos.y));
+  const totalDescU = calcDescUnits(root);
+  layoutDescLogical(root, 0, -totalDescU/2, totalDescU/2);
+
+  // Collect all nodes
+  const allNodes: TreeNode[] = [];
+  const q = [root];
+  const visitedNodes = new Set<string>();
+  visitedNodes.add(root.id);
+  while(q.length > 0) {
+    const n = q.shift()!;
+    allNodes.push(n);
+    for (const neighbor of [...n.parents, ...n.spouses, ...n.children]) {
+      if (!visitedNodes.has(neighbor.id)) {
+        visitedNodes.add(neighbor.id);
+        q.push(neighbor);
+      }
+    }
+  }
+
+  // Map logical coordinates to physical coordinates based on mode
+  if (mode === 'horizontal') {
+    for (const n of allNodes) {
+      n.x = n.generation * (BOX_WIDTH + SPACING_X);
+      n.y = (n as any).logicalY * (BOX_HEIGHT + SPACING_Y);
+    }
+  } else if (mode === 'butterfly') {
+    // Determine paternal and maternal sides
+    const leftSide = new Set<string>();
+    const rightSide = new Set<string>();
+    
+    // Root's ancestors go Left
+    const qLeft = [...root.parents];
+    while(qLeft.length > 0) {
+      const curr = qLeft.shift()!;
+      leftSide.add(curr.id);
+      if (curr.father) qLeft.push(curr.father);
+      if (curr.mother) qLeft.push(curr.mother);
+    }
+    
+    // Spouses' ancestors go Right
+    const qRight: TreeNode[] = [];
+    for (const spouse of root.spouses) {
+      qRight.push(...spouse.parents);
+    }
+    while(qRight.length > 0) {
+      const curr = qRight.shift()!;
+      rightSide.add(curr.id);
+      if (curr.father) qRight.push(curr.father);
+      if (curr.mother) qRight.push(curr.mother);
+    }
+
+    for (const n of allNodes) {
+      if (n.generation > 0) {
+        if (leftSide.has(n.id)) {
+          n.x = -n.generation * (BOX_WIDTH + SPACING_X);
+          n.y = (n as any).logicalY * (BOX_HEIGHT + SPACING_Y);
+        } else if (rightSide.has(n.id)) {
+          n.x = n.generation * (BOX_WIDTH + SPACING_X);
+          n.y = (n as any).logicalY * (BOX_HEIGHT + SPACING_Y);
+        } else {
+          n.x = -n.generation * (BOX_WIDTH + SPACING_X);
+          n.y = (n as any).logicalY * (BOX_HEIGHT + SPACING_Y);
         }
-        queue.push(parent);
+      } else if (n.generation < 0) {
+        n.x = (n as any).logicalY * (BOX_WIDTH + SPACING_X);
+        n.y = -n.generation * (BOX_HEIGHT + SPACING_Y);
+      } else {
+        n.x = 0;
+        n.y = (n as any).logicalY * (BOX_HEIGHT + SPACING_Y);
+      }
+    }
+  } else if (mode === 'vertical') {
+    for (const n of allNodes) {
+      n.x = (n as any).logicalY * (BOX_WIDTH + SPACING_X);
+      n.y = -n.generation * (BOX_HEIGHT + SPACING_Y);
+    }
+  } else if (mode === 'fan') {
+    const RADIUS_STEP = 350;
+    
+    const ancNodes = allNodes.filter(n => n.generation > 0);
+    const descNodes = allNodes.filter(n => n.generation < 0);
+    
+    let ancMinY = 0, ancMaxY = 0;
+    if (ancNodes.length > 0) {
+      ancMinY = Math.min(...ancNodes.map(n => (n as any).logicalY));
+      ancMaxY = Math.max(...ancNodes.map(n => (n as any).logicalY));
+    }
+    const ancRange = ancMaxY - ancMinY || 1;
+    
+    let descMinY = 0, descMaxY = 0;
+    if (descNodes.length > 0) {
+      descMinY = Math.min(...descNodes.map(n => (n as any).logicalY));
+      descMaxY = Math.max(...descNodes.map(n => (n as any).logicalY));
+    }
+    const descRange = descMaxY - descMinY || 1;
+    
+    for (const n of allNodes) {
+      let radiusOffset = 0;
+      
+      if (n.generation > 0) {
+        const isMother = n.children.some(c => c.mother?.id === n.id);
+        if (isMother) radiusOffset = 65;
+      } else if (n.spouses.length > 0) {
+        const group = [n, ...n.spouses].sort((a, b) => a.id.localeCompare(b.id));
+        const idx = group.indexOf(n);
+        radiusOffset = idx * 65; // Offset spouses radially to prevent overlap
+      }
+      
+      const radius = Math.abs(n.generation) * RADIUS_STEP + radiusOffset;
+      
+      if (n.generation > 0) {
+        let angle = Math.PI / 2;
+        if (ancMaxY > ancMinY) {
+          angle = 0.05 * Math.PI + (((n as any).logicalY - ancMinY) / ancRange) * 0.9 * Math.PI;
+        }
+        n.x = Math.cos(angle) * radius;
+        n.y = -Math.sin(angle) * radius;
+      } else if (n.generation < 0) {
+        let angle = 1.5 * Math.PI;
+        if (descMaxY > descMinY) {
+          angle = 1.05 * Math.PI + (((n as any).logicalY - descMinY) / descRange) * 0.9 * Math.PI;
+        }
+        n.x = Math.cos(angle) * radius;
+        n.y = -Math.sin(angle) * radius;
+      } else {
+        // Generation 0 (Root and spouses)
+        // In Fan layout, place them in the center but offset horizontally to prevent overlap
+        const group = [n, ...n.spouses].sort((a, b) => a.id.localeCompare(b.id));
+        const idx = group.indexOf(n);
+        const total = group.length;
+        n.x = (idx - (total - 1) / 2) * (BOX_WIDTH + 20);
+        n.y = 0;
       }
     }
   }
