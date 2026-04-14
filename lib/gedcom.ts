@@ -570,7 +570,17 @@ export function applyLayout(root: TreeNode, mode: string) {
       }
     }
     
-    root.x = -20;
+    // Spouses and their ancestors (Right: 0 to 90 degrees)
+    const spouseAngleStart = 0; // 0 deg
+    const spouseAngleEnd = Math.PI / 2; // 90 deg
+    const spouseSlice = (spouseAngleEnd - spouseAngleStart) / (root.spouses.length || 1);
+    
+    // Calculate total width needed for root + spouses
+    const totalCenterNodes = 1 + root.spouses.length;
+    const centerSpacing = BOX_WIDTH + 20;
+    const startX = -((totalCenterNodes - 1) * centerSpacing) / 2;
+
+    root.x = startX;
     root.y = 0;
     visitedAnc.add(root.id);
     
@@ -590,15 +600,10 @@ export function applyLayout(root: TreeNode, mode: string) {
       currentRootAngle += angleShare;
     }
 
-    // Spouses and their ancestors (Right: 0 to 90 degrees)
-    const spouseAngleStart = 0; // 0 deg
-    const spouseAngleEnd = Math.PI / 2; // 90 deg
-    const spouseSlice = (spouseAngleEnd - spouseAngleStart) / (root.spouses.length || 1);
-    
     for (let i = 0; i < root.spouses.length; i++) {
       const spouse = root.spouses[i];
       visitedAnc.add(spouse.id);
-      spouse.x = 20 + i * 40;
+      spouse.x = startX + (i + 1) * centerSpacing;
       spouse.y = 0;
       
       const sStart = spouseAngleStart + i * spouseSlice;

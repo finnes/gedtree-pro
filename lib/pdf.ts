@@ -69,7 +69,7 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
 
     // Calculate scale to fit vertically in max 6 pages
     const maxAllowedHeight = effHeight * 6;
-    let scale = 0.35; // Base scale: 1 pixel = 0.35 mm (approx 72 DPI)
+    let scale = 0.3125; // Base scale: 160px -> 50mm, 64px -> 20mm
     if (totalHeight * scale > maxAllowedHeight) {
       scale = maxAllowedHeight / totalHeight;
       scale = Math.max(scale, 0.1); // Minimum scale 10%
@@ -125,8 +125,12 @@ export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_
         doc.setTextColor(255, 0, 0);
         doc.text(`Página ${r * cols + col + 1} (L${r + 1}, C${col + 1})`, PRINT_MARGIN, 5);
         
-        if (col < cols - 1) doc.text("CORTE E COLE ->", PAGE_WIDTH - PRINT_MARGIN - 35, PAGE_HEIGHT / 2);
-        if (r < rows - 1) doc.text("V CORTE E COLE V", PAGE_WIDTH / 2 - 20, PAGE_HEIGHT - 3);
+        if (col < cols - 1) {
+          doc.text("CORTE E COLE", PAGE_WIDTH - PRINT_MARGIN + 6, PAGE_HEIGHT / 2 + 15, { angle: 90 });
+        }
+        if (r < rows - 1) {
+          doc.text("V CORTE E COLE V", PAGE_WIDTH / 2 - 20, PAGE_HEIGHT - PRINT_MARGIN + 6);
+        }
       }
     }
 
@@ -147,7 +151,7 @@ function drawNodesAndEdges(
   row: number
 ) {
   const BOX_WIDTH = 160 * scale;
-  const BOX_HEIGHT = 50 * scale;
+  const BOX_HEIGHT = 64 * scale;
 
   // Draw Edges
   edges.forEach(edge => {
@@ -156,9 +160,9 @@ function drawNodesAndEdges(
     
     if (sourceNode && targetNode) {
       const sourceW = sourceNode.type === 'family' ? 8 : 160;
-      const sourceH = sourceNode.type === 'family' ? 8 : 50;
+      const sourceH = sourceNode.type === 'family' ? 8 : 64;
       const targetW = targetNode.type === 'family' ? 8 : 160;
-      const targetH = targetNode.type === 'family' ? 8 : 50;
+      const targetH = targetNode.type === 'family' ? 8 : 64;
 
       let startX = (sourceNode.position.x + sourceW / 2 - offsetX) * scale;
       let startY = (sourceNode.position.y + sourceH / 2 - offsetY) * scale;
@@ -271,22 +275,26 @@ function drawNodesAndEdges(
     const birth = node.data.birth as string;
     const death = node.data.death as string;
     
-    const bStr = birth ? `★ ${birth.substring(0, 10)}` : '';
-    const dStr = death ? ` ✝ ${death.substring(0, 10)}` : '';
-    let dateStr = `${bStr}   ${dStr}`.trim();
-    if (!dateStr) dateStr = 'Datas desconhecidas';
+    const bStr = birth ? `* ${birth.substring(0, 10)}` : '';
+    const dStr = death ? `+ ${death.substring(0, 10)}` : '';
     
     // 9px in a 160px box -> 9mm in a 160mm box. 9mm = 25.5 points.
     let dateFontSize = 24 * scale;
     doc.setFontSize(dateFontSize);
-    let dateWidth = doc.getTextWidth(dateStr);
     
-    if (dateWidth > maxTextWidth) {
-      dateFontSize = dateFontSize * (maxTextWidth / dateWidth);
-      doc.setFontSize(dateFontSize);
-      dateWidth = doc.getTextWidth(dateStr);
+    if (!bStr && !dStr) {
+      const unknownStr = 'Datas desconhecidas';
+      const unknownWidth = doc.getTextWidth(unknownStr);
+      doc.text(unknownStr, x + (BOX_WIDTH - unknownWidth) / 2, y + 38 * scale);
+    } else {
+      if (bStr) {
+        const bWidth = doc.getTextWidth(bStr);
+        doc.text(bStr, x + (BOX_WIDTH - bWidth) / 2, y + 34 * scale);
+      }
+      if (dStr) {
+        const dWidth = doc.getTextWidth(dStr);
+        doc.text(dStr, x + (BOX_WIDTH - dWidth) / 2, y + 44 * scale);
+      }
     }
-    
-    doc.text(dateStr, x + (BOX_WIDTH - dateWidth) / 2, y + 38 * scale);
   });
 }
