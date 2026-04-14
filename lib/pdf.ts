@@ -240,7 +240,23 @@ function drawNodesAndEdges(
     doc.roundedRect(x + 2 * scale, y + 2 * scale, BOX_WIDTH, BOX_HEIGHT, 4 * scale, 4 * scale, 'F');
     
     // Box
-    doc.setFillColor(255, 255, 255);
+    const genColors = [
+      [255, 255, 255], // Gen 0 (Root) - white
+      [239, 246, 255], // Gen 1 - blue-50
+      [236, 253, 245], // Gen 2 - emerald-50
+      [255, 251, 235], // Gen 3 - amber-50
+      [255, 241, 242], // Gen 4 - rose-50
+      [250, 245, 255], // Gen 5 - purple-50
+      [236, 254, 255], // Gen 6 - cyan-50
+      [255, 247, 237], // Gen 7 - orange-50
+      [247, 254, 231], // Gen 8 - lime-50
+      [253, 244, 255], // Gen 9 - fuchsia-50
+      [240, 249, 255], // Gen 10 - sky-50
+    ];
+    const genIndex = Math.abs((node.data?.generation as number) || 0);
+    const bgColor = genColors[genIndex % genColors.length];
+    
+    doc.setFillColor(bgColor[0], bgColor[1], bgColor[2]);
     doc.setDrawColor(203, 213, 225); // slate-300
     doc.setLineWidth(1 * scale);
     doc.roundedRect(x, y, BOX_WIDTH, BOX_HEIGHT, 4 * scale, 4 * scale, 'FD');

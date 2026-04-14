@@ -28,8 +28,26 @@ const PersonNode = ({ id, data }: { id: string, data: any }) => {
     deleteElements({ nodes: [{ id }] });
   };
 
+  // Generate a background color based on generation
+  const genColors = [
+    'bg-white', // Gen 0 (Root)
+    'bg-blue-50', // Gen 1
+    'bg-emerald-50', // Gen 2
+    'bg-amber-50', // Gen 3
+    'bg-rose-50', // Gen 4
+    'bg-purple-50', // Gen 5
+    'bg-cyan-50', // Gen 6
+    'bg-orange-50', // Gen 7
+    'bg-lime-50', // Gen 8
+    'bg-fuchsia-50', // Gen 9
+    'bg-sky-50', // Gen 10
+  ];
+  
+  const genIndex = Math.abs(data.generation || 0);
+  const bgColor = genColors[genIndex % genColors.length];
+
   return (
-    <div className="bg-white border border-slate-300 rounded-lg shadow-sm w-[160px] p-3 flex flex-col items-center justify-center relative group hover:border-indigo-400 hover:shadow-md transition-all">
+    <div className={`${bgColor} border border-slate-300 rounded-lg shadow-sm w-[160px] p-3 flex flex-col items-center justify-center relative group hover:border-indigo-400 hover:shadow-md transition-all`}>
       <button 
         onClick={onDelete}
         onPointerDown={(e) => e.stopPropagation()}
@@ -274,7 +292,7 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
         id: node.id,
         type: 'person',
         position: { x: node.x, y: node.y },
-        data: { name: node.name, birth: node.birth, death: node.death },
+        data: { name: node.name, birth: node.birth, death: node.death, generation: node.generation },
       });
 
       // Add Edges
@@ -551,7 +569,7 @@ export default function TreeEditor({ rootNode, layoutMode, layoutKey, exportForm
       
       return changed ? newEdges : currentEdges;
     });
-  }, [nodes, setEdges]);
+  }, [nodes, edges.length, setEdges]);
 
   // Notify parent component when nodes/edges change (for PDF export)
   useEffect(() => {
