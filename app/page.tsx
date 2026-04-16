@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import dynamic from 'next/dynamic';
 import { Upload, Download, FileText, TreeDeciduous, Info, CheckCircle2, AlertCircle } from 'lucide-react';
 import { parseGedcom, buildTree, applyLayout, ParsedGedcom, TreeNode } from '@/lib/gedcom';
-import { generateFlowPDF } from '@/lib/pdf';
-import TreeEditor from '@/components/TreeEditor';
-import { Node, Edge } from '@xyflow/react';
+import type { Node, Edge } from '@xyflow/react';
+
+const TreeEditor = dynamic(() => import('@/components/TreeEditor'), { ssr: false });
 
 export default function GedcomToPdfPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -78,8 +78,9 @@ export default function GedcomToPdfPage() {
     setCurrentEdges(edges);
   }, []);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (currentNodes.length === 0) return;
+    const { generateFlowPDF } = await import('@/lib/pdf');
     generateFlowPDF(currentNodes, currentEdges, exportFormat, pageSize);
   };
 
@@ -167,19 +168,14 @@ export default function GedcomToPdfPage() {
                 </div>
               </label>
 
-              <AnimatePresence>
-                {error && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
+              {error && (
+                  <div 
                     className="bg-red-50 border border-red-100 text-red-700 p-4 rounded-xl flex items-center gap-3 text-sm"
                   >
                     <AlertCircle size={18} />
                     {error}
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
             </div>
             
             {parsedData && treeNode && (

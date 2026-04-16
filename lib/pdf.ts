@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { Node, Edge } from '@xyflow/react';
+import type { Node, Edge } from '@xyflow/react';
 
 export function generateFlowPDF(nodes: Node[], edges: Edge[], exportFormat: 'A3_GRID' | 'A0_POSTER', pageSize: string = 'A3') {
   if (nodes.length === 0) return;

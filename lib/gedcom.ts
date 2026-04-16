@@ -302,11 +302,16 @@ export function applyLayout(root: TreeNode, mode: string) {
     visitedAnc.add(node.id);
     const fU = calcAncUnits(node.father);
     const mU = calcAncUnits(node.mother);
-    const units = Math.max(1, fU + mU);
+    // Reserve space for the node itself and any extra spouses it might have
+    const extraSpouses = Math.max(0, node.spouses.length - 1);
+    const units = Math.max(1 + extraSpouses, fU + mU + extraSpouses);
     (node as any).ancUnits = units;
     return units;
   }
   calcAncUnits(root);
+  for (const spouse of root.spouses) {
+    calcAncUnits(spouse);
+  }
 
   const visitedDesc = new Set<string>();
   function calcDescUnits(node: TreeNode | null): number {
@@ -315,8 +320,14 @@ export function applyLayout(root: TreeNode, mode: string) {
     if (visitedDesc.has(node.id)) return 1;
     visitedDesc.add(node.id);
     
+    const allChildren = new Set<TreeNode>();
+    for (const c of node.children) allChildren.add(c);
+    for (const s of node.spouses) {
+      for (const c of s.children) allChildren.add(c);
+    }
+    
     let childrenU = 0;
-    for (const child of node.children) {
+    for (const child of Array.from(allChildren)) {
       childrenU += calcDescUnits(child);
     }
     
@@ -340,11 +351,16 @@ export function applyLayout(root: TreeNode, mode: string) {
     const totalU = fU + mU;
     
     if (totalU > 0) {
-      const fRatio = fU / totalU;
-      const boundaryY = minY + (maxY - minY) * fRatio;
-      
-      if (node.father) layoutAncLogical(node.father, boundaryY - 0.4, minY, boundaryY);
-      if (node.mother) layoutAncLogical(node.mother, boundaryY + 0.4, boundaryY, maxY);
+      if (node.father && node.mother) {
+        // Flawless math to keep couples exactly 1 unit apart while respecting their required space
+        const B = (minY + fU + maxY - mU) / 2;
+        layoutAncLogical(node.father, B - 0.5, minY, B);
+        layoutAncLogical(node.mother, B + 0.5, B, maxY);
+      } else if (node.father) {
+        layoutAncLogical(node.father, (minY + maxY) / 2, minY, maxY);
+      } else if (node.mother) {
+        layoutAncLogical(node.mother, (minY + maxY) / 2, minY, maxY);
+      }
     }
   }
 
@@ -372,31 +388,36 @@ export function applyLayout(root: TreeNode, mode: string) {
       const ancU = Math.max(1, (n as any).ancUnits || 1);
       const ancMaxY = currentAncMinY + ancU;
       
-      if (n.father || n.mother) {
-        const fU = n.father ? (n.father as any).ancUnits || 0 : 0;
-        const mU = n.mother ? (n.mother as any).ancUnits || 0 : 0;
-        const totalU = fU + mU;
-        
-        if (totalU > 0) {
-          const fRatio = fU / totalU;
-          const boundaryY = currentAncMinY + ancU * fRatio;
-          
-          if (n.father) layoutAncLogical(n.father, boundaryY - 0.4, currentAncMinY, boundaryY);
-          if (n.mother) layoutAncLogical(n.mother, boundaryY + 0.4, boundaryY, ancMaxY);
-        }
+      if (n.father && n.mother) {
+        const fU = (n.father as any).ancUnits || 0;
+        const mU = (n.mother as any).ancUnits || 0;
+        const B = (currentAncMinY + fU + ancMaxY - mU) / 2;
+        layoutAncLogical(n.father, B - 0.5, currentAncMinY, B);
+        layoutAncLogical(n.mother, B + 0.5, B, ancMaxY);
+      } else if (n.father) {
+        layoutAncLogical(n.father, (currentAncMinY + ancMaxY) / 2, currentAncMinY, ancMaxY);
+      } else if (n.mother) {
+        layoutAncLogical(n.mother, (currentAncMinY + ancMaxY) / 2, currentAncMinY, ancMaxY);
       }
       
       currentAncMinY = ancMaxY;
     }
     
-    if (node.children.length > 0) {
-      const totalChildrenU = node.children.reduce((sum, c) => sum + ((c as any).descUnits || 1), 0);
+    const allChildren = new Set<TreeNode>();
+    for (const c of node.children) allChildren.add(c);
+    for (const s of node.spouses) {
+      for (const c of s.children) allChildren.add(c);
+    }
+    const childrenArray = Array.from(allChildren);
+    
+    if (childrenArray.length > 0) {
+      const totalChildrenU = childrenArray.reduce((sum, c) => sum + ((c as any).descUnits || 1), 0);
       
       // Pack children tightly in the center of the allocated space
       const center = (minY + maxY) / 2;
       let currentMinY = center - totalChildrenU / 2;
       
-      for (const child of node.children) {
+      for (const child of childrenArray) {
         const cU = (child as any).descUnits || 1;
         const cMaxY = currentMinY + cU;
         
@@ -427,6 +448,56 @@ export function applyLayout(root: TreeNode, mode: string) {
     }
   }
 
+  // Safety net: assign logicalY to any nodes that were missed (e.g. spouses of ancestors)
+  let maxLogicalY = 0;
+  for (const n of allNodes) {
+    if ((n as any).logicalY !== undefined) {
+      maxLogicalY = Math.max(maxLogicalY, (n as any).logicalY);
+    }
+  }
+  
+  // First pass: try to place missed nodes near their spouses
+  for (const n of allNodes) {
+    if ((n as any).logicalY !== undefined) {
+      for (const s of n.spouses) {
+        if ((s as any).logicalY === undefined) {
+          let offset = 0.8;
+          let placed = false;
+          while (!placed && offset < 10) {
+            const posRight = (n as any).logicalY + offset;
+            const posLeft = (n as any).logicalY - offset;
+            
+            const rightOccupied = allNodes.some(x => x.generation === s.generation && Math.abs(((x as any).logicalY || -999) - posRight) < 0.4);
+            if (!rightOccupied) {
+              (s as any).logicalY = posRight;
+              placed = true;
+              break;
+            }
+            
+            const leftOccupied = allNodes.some(x => x.generation === s.generation && Math.abs(((x as any).logicalY || -999) - posLeft) < 0.4);
+            if (!leftOccupied) {
+              (s as any).logicalY = posLeft;
+              placed = true;
+              break;
+            }
+            offset += 0.8;
+          }
+          if (!placed) {
+            (s as any).logicalY = (n as any).logicalY + 0.8;
+          }
+        }
+      }
+    }
+  }
+  
+  // Second pass: place any remaining missed nodes at the bottom
+  for (const n of allNodes) {
+    if ((n as any).logicalY === undefined) {
+      maxLogicalY += 1;
+      (n as any).logicalY = maxLogicalY;
+    }
+  }
+
   // Map logical coordinates to physical coordinates based on mode
   if (mode === 'horizontal') {
     for (const n of allNodes) {
@@ -440,23 +511,39 @@ export function applyLayout(root: TreeNode, mode: string) {
     
     // Root's ancestors go Left
     const qLeft = [...root.parents];
+    for (const p of root.parents) leftSide.add(p.id);
     while(qLeft.length > 0) {
       const curr = qLeft.shift()!;
-      leftSide.add(curr.id);
-      if (curr.father) qLeft.push(curr.father);
-      if (curr.mother) qLeft.push(curr.mother);
+      if (curr.father && !leftSide.has(curr.father.id)) {
+        leftSide.add(curr.father.id);
+        qLeft.push(curr.father);
+      }
+      if (curr.mother && !leftSide.has(curr.mother.id)) {
+        leftSide.add(curr.mother.id);
+        qLeft.push(curr.mother);
+      }
     }
     
     // Spouses' ancestors go Right
     const qRight: TreeNode[] = [];
     for (const spouse of root.spouses) {
-      qRight.push(...spouse.parents);
+      for (const p of spouse.parents) {
+        if (!rightSide.has(p.id)) {
+          rightSide.add(p.id);
+          qRight.push(p);
+        }
+      }
     }
     while(qRight.length > 0) {
       const curr = qRight.shift()!;
-      rightSide.add(curr.id);
-      if (curr.father) qRight.push(curr.father);
-      if (curr.mother) qRight.push(curr.mother);
+      if (curr.father && !rightSide.has(curr.father.id)) {
+        rightSide.add(curr.father.id);
+        qRight.push(curr.father);
+      }
+      if (curr.mother && !rightSide.has(curr.mother.id)) {
+        rightSide.add(curr.mother.id);
+        qRight.push(curr.mother);
+      }
     }
 
     for (const n of allNodes) {
@@ -485,8 +572,6 @@ export function applyLayout(root: TreeNode, mode: string) {
       n.y = -n.generation * (BOX_HEIGHT + SPACING_Y);
     }
   } else if (mode === 'fan') {
-    const RADIUS_STEP = 350;
-    
     const ancNodes = allNodes.filter(n => n.generation > 0);
     const descNodes = allNodes.filter(n => n.generation < 0);
     
@@ -503,6 +588,17 @@ export function applyLayout(root: TreeNode, mode: string) {
       descMaxY = Math.max(...descNodes.map(n => (n as any).logicalY));
     }
     const descRange = descMaxY - descMinY || 1;
+
+    let maxGen = 0;
+    for (const n of allNodes) maxGen = Math.max(maxGen, Math.abs(n.generation));
+    
+    let RADIUS_STEP = 350;
+    for (let g = 1; g <= maxGen; g++) {
+      const requiredStep = (80 * Math.max(ancRange, descRange)) / (Math.PI * g);
+      if (requiredStep > RADIUS_STEP) {
+        RADIUS_STEP = requiredStep;
+      }
+    }
     
     for (const n of allNodes) {
       let radiusOffset = 0;
