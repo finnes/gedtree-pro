@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Upload, Download, FileText, TreeDeciduous, Info, CheckCircle2, AlertCircle } from 'lucide-react';
-import { parseGedcom, buildTree, applyLayout, ParsedGedcom, TreeNode } from '@/lib/gedcom';
+import { parseGedcom, buildTree, applyLayout, ParsedGedcom, TreeNode, mergeParsedGedcoms } from '@/lib/gedcom';
 import type { Node, Edge } from '@xyflow/react';
 
 const TreeEditor = dynamic(() => import('@/components/TreeEditor'), { ssr: false });
@@ -26,31 +26,45 @@ export default function GedcomToPdfPage() {
   const [currentEdges, setCurrentEdges] = useState<Edge[]>([]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const uploadedFile = e.target.files?.[0];
-    if (!uploadedFile) return;
+    // Handling multiple file uploads for synchronization
+    const uploadedFiles = Array.from(e.target.files || []);
+    if (uploadedFiles.length === 0) return;
 
-    if (!uploadedFile.name.toLowerCase().endsWith('.ged') && !uploadedFile.name.toLowerCase().endsWith('.txt')) {
-      setError('Por favor, envie um arquivo .ged ou .txt válido.');
-      return;
+    // We can support multiple formats
+    for (const file of uploadedFiles) {
+      if (!file.name.toLowerCase().endsWith('.ged') && !file.name.toLowerCase().endsWith('.txt')) {
+        setError('Por favor, envie apenas arquivos .ged ou .txt válidos.');
+        return;
+      }
     }
 
-    setFile(uploadedFile);
+    setFile(uploadedFiles[0]); // Visual fallback to first file
     setError(null);
     setIsProcessing(true);
 
     try {
-      const content = await uploadedFile.text();
-      const parsed = parseGedcom(content, source);
+      const parsedList: ParsedGedcom[] = [];
       
-      if (Object.keys(parsed.individuals).length === 0) {
-        throw new Error('Nenhum dado encontrado no arquivo GEDCOM.');
+      for (const uploadedFile of uploadedFiles) {
+        const content = await uploadedFile.text();
+        const parsed = parseGedcom(content, source);
+        if (Object.keys(parsed.individuals).length > 0) {
+          parsedList.push(parsed);
+        }
       }
       
-      setParsedData(parsed);
+      if (parsedList.length === 0) {
+        throw new Error('Nenhum dado encontrado nos arquivos GEDCOM.');
+      }
+      
+      const mergedParsed = mergeParsedGedcoms(parsedList);
+      const finalRootId = Object.keys(mergedParsed.individuals)[0] || '';
+      
+      setParsedData(mergedParsed);
       // Auto-select the first person
-      setRootId(Object.keys(parsed.individuals)[0]);
+      setRootId(finalRootId);
     } catch (err) {
-      setError('Erro ao processar o arquivo. Verifique se o formato está correto.');
+      setError('Erro ao processar os arquivos. Verifique se os formatos estão corretos.');
       console.error(err);
     } finally {
       setIsProcessing(false);
@@ -114,7 +128,7 @@ export default function GedcomToPdfPage() {
                 Sua história familiar <span className="text-indigo-600">editável.</span>
               </h2>
               <p className="text-sm text-slate-600 leading-relaxed">
-                Arraste as pessoas para ajustar o layout antes de gerar o PDF.
+                Arraste as pessoas para ajustar o layout, você pode subir múltiplos arquivos juntos para montar árvores maiores.
               </p>
             </div>
 
@@ -151,6 +165,7 @@ export default function GedcomToPdfPage() {
                   id="gedcom-upload" 
                   className="hidden" 
                   accept=".ged,.txt"
+                  multiple
                   onChange={handleFileUpload}
                 />
                 <div className="flex flex-col items-center text-center space-y-3">
@@ -162,7 +177,7 @@ export default function GedcomToPdfPage() {
                   </div>
                   <div>
                     <p className="text-sm font-bold text-slate-900">
-                      {file ? file.name : 'Selecione seu arquivo'}
+                      {file ? "Arquivos Carregados!" : 'Selecione seus arquivos'}
                     </p>
                   </div>
                 </div>

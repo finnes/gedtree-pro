@@ -18,6 +18,22 @@ export interface ParsedGedcom {
   families: Record<string, Family>;
 }
 
+export function normalizeName(name: string): string {
+  if (!name || name === 'Desconhecido') return name;
+  let norm = name
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\[[^\]]*\]/g, " ")
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .trim()
+    .replace(/\s+/g, " ");
+
+  if (norm === 'antonio castanho manzini') norm = 'antonia castanho manzini';
+  if (norm.startsWith('lea manzini')) norm = 'lea manzini gontijo da costa';
+  return norm;
+}
+
 export function cleanId(val: string | null | undefined): string {
   if (!val) return '';
   return val.replace(/@/g, '').trim();
@@ -109,15 +125,7 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
   for (const [id, indi] of Object.entries(individuals)) {
     if (!indi.name || indi.name === 'Desconhecido') continue;
     
-    let normName = indi.name.toLowerCase()
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9\s]/g, "")
-      .trim()
-      .replace(/\s+/g, " ");
-
-    // Custom fixes for specific typos in the user's GEDCOM
-    if (normName === 'antonio castanho manzini') normName = 'antonia castanho manzini';
-    if (normName.startsWith('lea manzini')) normName = 'lea manzini gontijo da costa';
+    let normName = normalizeName(indi.name);
 
     if (!nameMap.has(normName)) nameMap.set(normName, []);
     nameMap.get(normName)!.push(id);
@@ -163,6 +171,247 @@ export function parseGedcom(content: string, source: string = 'other'): ParsedGe
   }
 
   return { individuals, families };
+}
+
+export function namespaceParsedGedcom(parsed: ParsedGedcom, prefix: string): ParsedGedcom {
+  const individuals: Record<string, Individual> = {};
+  const families: Record<string, Family> = {};
+
+  for (const [id, ind] of Object.entries(parsed.individuals)) {
+    individuals[`${prefix}_${id}`] = {
+      ...ind,
+      id: `${prefix}_${id}`,
+      famc: ind.famc.map(fId => `${prefix}_${fId}`)
+    };
+  }
+
+  for (const [id, fam] of Object.entries(parsed.families)) {
+    families[`${prefix}_${id}`] = {
+      ...fam,
+      id: `${prefix}_${id}`,
+      husb: fam.husb ? `${prefix}_${fam.husb}` : null,
+      wife: fam.wife ? `${prefix}_${fam.wife}` : null,
+      chil: fam.chil.map(cId => `${prefix}_${cId}`)
+    };
+  }
+
+  return { individuals, families };
+}
+
+export function mergeParsedGedcoms(parsedList: ParsedGedcom[]): ParsedGedcom {
+  if (parsedList.length === 0) return { individuals: {}, families: {} };
+  if (parsedList.length === 1) return parsedList[0];
+
+  const mergedIndividuals: Record<string, Individual> = {};
+  const mergedFamilies: Record<string, Family> = {};
+
+  // First, namespace and merge everything blindly
+  parsedList.forEach((parsed, index) => {
+    const namespaced = namespaceParsedGedcom(parsed, `f${index}`);
+    Object.assign(mergedIndividuals, namespaced.individuals);
+    Object.assign(mergedFamilies, namespaced.families);
+  });
+
+  // Now perform deduplication akin to parseGedcom
+  const nameMap = new Map<string, string[]>();
+  const idReplacements: Record<string, string> = {};
+
+  for (const [id, indi] of Object.entries(mergedIndividuals)) {
+    if (!indi.name || indi.name === 'Desconhecido') continue;
+    
+    let normName = normalizeName(indi.name);
+
+    if (!nameMap.has(normName)) nameMap.set(normName, []);
+    nameMap.get(normName)!.push(id);
+  }
+
+  for (const [normName, ids] of nameMap.entries()) {
+    if (ids.length > 1) {
+      ids.sort((a, b) => {
+        const scoreA = (mergedIndividuals[a].birth ? 1 : 0) + (mergedIndividuals[a].famc?.length || 0);
+        const scoreB = (mergedIndividuals[b].birth ? 1 : 0) + (mergedIndividuals[b].famc?.length || 0);
+        return scoreB - scoreA;
+      });
+
+      const primaryId = ids[0];
+      const primary = mergedIndividuals[primaryId];
+
+      for (let i = 1; i < ids.length; i++) {
+        const dupId = ids[i];
+        const dup = mergedIndividuals[dupId];
+
+        idReplacements[dupId] = primaryId;
+
+        // Merge data
+        if (!primary.birth && dup.birth) primary.birth = dup.birth;
+        if (!primary.death && dup.death) primary.death = dup.death;
+        if (dup.famc && dup.famc.length > 0) {
+          primary.famc = Array.from(new Set([...(primary.famc || []), ...dup.famc]));
+        }
+
+        delete mergedIndividuals[dupId];
+      }
+    }
+  }
+
+  // Update families with replaced IDs
+  for (const fam of Object.values(mergedFamilies)) {
+    if (fam.husb && idReplacements[fam.husb]) fam.husb = idReplacements[fam.husb];
+    if (fam.wife && idReplacements[fam.wife]) fam.wife = idReplacements[fam.wife];
+    fam.chil = fam.chil.map(childId => idReplacements[childId] || childId);
+    fam.chil = Array.from(new Set(fam.chil));
+  }
+
+  function areNamesSimilar(n1: string, n2: string) {
+    if (!n1 || !n2) return true;
+    if (n1 === 'Desconhecido' || n2 === 'Desconhecido') return true;
+    let norm1 = normalizeName(n1);
+    let norm2 = normalizeName(n2);
+    if (norm1 === norm2) return true;
+    
+    const parts1 = norm1.split(' ');
+    const parts2 = norm2.split(' ');
+    if (parts1[0] && parts2[0] && parts1[0] === parts2[0]) {
+       // Check if they share any other word in the name
+       const set2 = new Set(parts2.slice(1));
+       let shared = 0;
+       for (const w of parts1.slice(1)) {
+          if (set2.has(w) && w.length > 2) shared++;
+       }
+       if (shared > 0) return true;
+       
+       if (norm1.includes(norm2) || norm2.includes(norm1)) return true;
+       
+       if (parts1.length === 1 || parts2.length === 1) return true;
+    }
+    return false;
+  }
+
+  // SECOND PASS: Context-based individual deduplication
+  let madeChanges = true;
+  while (madeChanges) {
+    madeChanges = false;
+    
+    const husbToFamilies = new Map<string, string[]>();
+    const wifeToFamilies = new Map<string, string[]>();
+    for (const [fId, fam] of Object.entries(mergedFamilies)) {
+      if (fam.husb) {
+        if (!husbToFamilies.has(fam.husb)) husbToFamilies.set(fam.husb, []);
+        husbToFamilies.get(fam.husb)!.push(fId);
+      }
+      if (fam.wife) {
+        if (!wifeToFamilies.has(fam.wife)) wifeToFamilies.set(fam.wife, []);
+        wifeToFamilies.get(fam.wife)!.push(fId);
+      }
+    }
+
+    const mergeIndividualPair = (id1: string, id2: string) => {
+       const score1 = (mergedIndividuals[id1].birth ? 1 : 0) + (mergedIndividuals[id1].famc?.length || 0);
+       const score2 = (mergedIndividuals[id2].birth ? 1 : 0) + (mergedIndividuals[id2].famc?.length || 0);
+       const primaryId = score1 >= score2 ? id1 : id2;
+       const dupId = score1 >= score2 ? id2 : id1;
+       
+       const primary = mergedIndividuals[primaryId];
+       const dup = mergedIndividuals[dupId];
+       
+       if (!primary.birth && dup.birth) primary.birth = dup.birth;
+       if (!primary.death && dup.death) primary.death = dup.death;
+       if (dup.famc && dup.famc.length > 0) {
+         primary.famc = Array.from(new Set([...(primary.famc || []), ...dup.famc]));
+       }
+       if (primary.name === 'Desconhecido' && dup.name !== 'Desconhecido') primary.name = dup.name;
+       else if (primary.name.length < dup.name.length && dup.name !== 'Desconhecido') primary.name = dup.name; 
+       
+       delete mergedIndividuals[dupId];
+       
+       for (const fam of Object.values(mergedFamilies)) {
+         if (fam.husb === dupId) fam.husb = primaryId;
+         if (fam.wife === dupId) fam.wife = primaryId;
+         fam.chil = fam.chil.map(childId => childId === dupId ? primaryId : childId);
+         fam.chil = Array.from(new Set(fam.chil));
+       }
+       madeChanges = true;
+    };
+
+    for (const [husbId, fIds] of husbToFamilies.entries()) {
+      if (fIds.length > 1) {
+         for (let i = 0; i < fIds.length; i++) {
+           for (let j = i + 1; j < fIds.length; j++) {
+              const w1 = mergedFamilies[fIds[i]]?.wife;
+              const w2 = mergedFamilies[fIds[j]]?.wife;
+              if (w1 && w2 && w1 !== w2 && mergedIndividuals[w1] && mergedIndividuals[w2]) {
+                 if (areNamesSimilar(mergedIndividuals[w1].name, mergedIndividuals[w2].name)) {
+                   mergeIndividualPair(w1, w2);
+                   break;
+                 }
+              }
+           }
+           if (madeChanges) break;
+         }
+      }
+      if (madeChanges) break;
+    }
+    
+    if (madeChanges) continue;
+    
+    for (const [wifeId, fIds] of wifeToFamilies.entries()) {
+      if (fIds.length > 1) {
+         for (let i = 0; i < fIds.length; i++) {
+           for (let j = i + 1; j < fIds.length; j++) {
+              const h1 = mergedFamilies[fIds[i]]?.husb;
+              const h2 = mergedFamilies[fIds[j]]?.husb;
+              if (h1 && h2 && h1 !== h2 && mergedIndividuals[h1] && mergedIndividuals[h2]) {
+                 if (areNamesSimilar(mergedIndividuals[h1].name, mergedIndividuals[h2].name)) {
+                   mergeIndividualPair(h1, h2);
+                   break;
+                 }
+              }
+           }
+           if (madeChanges) break;
+         }
+      }
+      if (madeChanges) break;
+    }
+  }
+
+  // Deduplicate families (couples)
+  // Clean identical or partial families
+  let familyChanged = true;
+  while(familyChanged) {
+    familyChanged = false;
+    const fKeys = Object.keys(mergedFamilies);
+    for (let i = 0; i < fKeys.length; i++) {
+       for (let j = i + 1; j < fKeys.length; j++) {
+          const f1 = mergedFamilies[fKeys[i]];
+          const f2 = mergedFamilies[fKeys[j]];
+          if (!f1 || !f2) continue;
+          
+          const sameHusb = f1.husb === f2.husb && f1.husb !== null;
+          const sameWife = f1.wife === f2.wife && f1.wife !== null;
+          
+          if ((sameHusb && sameWife) || (sameHusb && (!f1.wife || !f2.wife)) || (sameWife && (!f1.husb || !f2.husb))) {
+             if (f2.wife) f1.wife = f2.wife;
+             if (f2.husb) f1.husb = f2.husb;
+             f1.chil = Array.from(new Set([...f1.chil, ...f2.chil]));
+             
+             const targetFid = fKeys[i];
+             const deadFid = fKeys[j];
+             for (const indi of Object.values(mergedIndividuals)) {
+               if (indi.famc && indi.famc.includes(deadFid)) {
+                 indi.famc = indi.famc.map(id => id === deadFid ? targetFid : id);
+                 indi.famc = Array.from(new Set(indi.famc));
+               }
+             }
+             delete mergedFamilies[deadFid];
+             familyChanged = true;
+             break;
+          }
+       }
+       if (familyChanged) break;
+    }
+  }
+
+  return { individuals: mergedIndividuals, families: mergedFamilies };
 }
 
 export interface TreeNode {
