@@ -17,7 +17,6 @@ import {
   Panel,
   SelectionMode
 } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import { TreeNode } from '@/lib/gedcom';
 import { MousePointer2, Hand, ZoomIn, ZoomOut, Maximize, Minimize, Focus, Undo2, Redo2, Grid, X } from 'lucide-react';
 
